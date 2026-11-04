@@ -38,13 +38,14 @@ function rateLimitLogin(req, res, next) {
     const registro = intentosPorIp.get(req.ip) ?? { count:0, desde: ahora };
 
     if(ahora - registro.desde > 15 * 60 * 1000){
-        registro.count = 0;    
+        registro.count = 0;  
+        registro.desde = ahora;  
     }
 
     registro.count++;
     intentosPorIp.set(req.ip, registro);
 
-    if(registro.count > Max_INTENTOS){
+    if(registro.count > MAX_INTENTOS){
         return res.status(429).json({ message: `Demasiados intentos. Intenta mas tarde` });
     }
 
@@ -53,34 +54,18 @@ function rateLimitLogin(req, res, next) {
 
 function requireAuth(req, res, next) {
     try{
-        req.user = jwt.verify(req.cookies.token, process.env.JWT_SECRET);
+        req.user = jwt.verify(req.cookies.token, process.env.JWT_SECRET, { algorithms: ['HS256'] }); 
         next();
     } catch {
         res.status(401).json({ message: 'No autorizado' })
     }
 }
 
+app.post('/api/login', rateLimitLogin, async (req, res) => {
+    const { email, password } = req.body ?? {};
 
-
-app.get('/prueba/login', (req, res) => {
-    res.send('Login route brou')
-})
-
-app.get('/api/db-test', async (req, res) => {
-    try{
-        const resultado = await pool.query('SELECT COUNT(*) FROM users');
-        res.json({ usuarios: resultado.rows[0].count })
-    } catch (err){
-        console.log(err.stack);
-        res.status(500).json({ error: 'no se pudo conectar con la base de datos', detalle: err.message })
-    }
-})
-
-app.post('/login', rateLimitLogin, async (req, res) => {
-    const { email, password } = req.body ?? null;
-
-    if(typeof email !== 'string' || password !== 'string',
-        email.length === 0 || password.length === 0,
+    if(typeof email !== 'string' || typeof password !== 'string' ||
+        email.length === 0 || password.length === 0 ||
         email.length > 250 || password.length > 128
     ){
         return res.status(400).json({ message: 'Datos invalidos' })
@@ -88,7 +73,7 @@ app.post('/login', rateLimitLogin, async (req, res) => {
 
     try{
         const { rows } = await pool.query(
-            `SELECT id, password_hash, is_active, 
+            `SELECT id, username, password_hash, is_active, 
             (locked_until IS NOT NULL AND locked_until > NOW())
             AS bloqueado FROM users WHERE email = $1`,
             [email.trim().toLowerCase()]
@@ -102,11 +87,17 @@ app.post('/login', rateLimitLogin, async (req, res) => {
         if(!user || !ok || user.bloqueado || !user.is_active){
             if(user && !ok && !user.bloqueado){
                 await pool.query(
+                    `UPDATE users SET failed_attempts = 0, locked_until = NULL
+                    WHERE id = $1 AND locked_until IS NOT NULL AND locked_until <= NOW()`,
+                    [user.id]
+                )
+
+                await pool.query(
                     `UPDATE users
                     SET failed_attempts = failed_attempts + 1,
-                        locked_until = CASE WHEN failed attempts + 1 > $2
-                                THEN NOW() + INTERVAL(mins => $3)
-                                ELSE NULL END
+                        locked_until = CASE WHEN failed_attempts + 1 >= $2
+                                THEN NOW() + make_interval(mins => $3)
+                                ELSE locked_until END
                     WHERE id = $1`,
                     [user.id, MAX_INTENTOS, BLOQUEO_MIN]
                 )
@@ -132,10 +123,11 @@ app.post('/login', rateLimitLogin, async (req, res) => {
         res.json({ message: 'Login exitoso', username: user.username });
 
     } catch (err){
-        console.log(err) {
-            res.status(500).json({ message: 'Error interno del servidor' })            
-        }
-    }
+        console.error(err.stack);
+        res.status(500).json({ message: 'Error interno del servidor' 
+
+    })            
+}
 
 
 })
@@ -149,6 +141,67 @@ app.post('/api/logout', (req, res) => {
     res.json({ message: 'Sesión cerrada' });
 });
 
-app.listen(3000, () => {
-    console.log('Server is running on port 3000');
+app.use((err, req, res, next) => {
+    res.status(err.status || 500).json({ message: 'Solicitud inválida' });
+});
+
+
+
+
+
+
+
+
+
+app.post('/api/register', rateLimitLogin, async (req, res) => {
+    const { username, email, password } = req.body ?? {};
+
+    // Los tres datos deben ser texto
+    if(typeof username !== 'string' || typeof email !== 'string' || typeof password !== 'string'){
+        return res.status(400).json({ message: 'Datos invalidos' })
+    }
+
+    const usernameLimpio = username.trim();
+    const emailLimpio = email.trim().toLowerCase();
+
+    // Formato: usuario de 3 a 30 caracteres, correo válido, contraseña de 10 a 128
+    if(!/^[a-zA-Z0-9_]{3,30}$/.test(usernameLimpio) ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio) ||
+        emailLimpio.length > 250 ||
+        password.length < 10 || password.length > 128
+    ){
+        return res.status(400).json({ message: 'Datos invalidos' })
+    }
+
+    try{
+        const hash = await argon2.hash(password);
+        await pool.query(
+            'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3)',
+            [usernameLimpio, emailLimpio, hash]
+        );
+        res.status(201).json({ message: 'Cuenta creada' });
+    } catch (err){
+        // 23505 = el correo (o usuario) ya existe
+        if(err.code === '23505'){
+            return res.status(409).json({ message: 'No se pudo registrar con esos datos' });
+        }
+        console.error(err.stack);
+        res.status(500).json({ message: 'Error interno del servidor' });
+    }
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+app.listen(process.env.PORT || 3000, () => {
+    console.log('Server is running on port ' + (process.env.PORT || 3000));
 })
