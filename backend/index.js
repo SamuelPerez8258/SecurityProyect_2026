@@ -62,43 +62,7 @@ function requireAuth(req, res, next) {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-app.get('/login', (req, res) => {
+app.get('/prueba/login', (req, res) => {
     res.send('Login route brou')
 })
 
@@ -112,14 +76,68 @@ app.get('/api/db-test', async (req, res) => {
     }
 })
 
-app.post('/api/login', (req, res) => {
-    const { email, password } = req.body
+app.post('/login', rateLimitLogin, async (req, res) => {
+    const { email, password } = req.body ?? null;
 
-    if(email === 'a@a.com' && password === '1234') {
-        res.json({ message: 'Login successful' })
-    } else {
-        res.status(401).json({ message: 'Invalid credentials' })
+    if(typeof email !== 'string' || password !== 'string',
+        email.length === 0 || password.length === 0,
+        email.length > 250 || password.length > 128
+    ){
+        return res.status(400).json({ message: 'Datos invalidos' })
     }
+
+    try{
+        const { rows } = await pool.query(
+            `SELECT id, password_hash, is_active, 
+            (locked_until IS NOT NULL AND locked_until > NOW())
+            AS bloqueado FROM users WHERE email = $1`,
+            [email.trim().toLowerCase()]
+        );
+        const user = rows[0];
+
+        const ok = await argon2
+        .verify(user ? user.password_hash : DUMMY_HASH, password)
+        .catch(() => false);
+
+        if(!user || !ok || user.bloqueado || !user.is_active){
+            if(user && !ok && !user.bloqueado){
+                await pool.query(
+                    `UPDATE users
+                    SET failed_attempts = failed_attempts + 1,
+                        locked_until = CASE WHEN failed attempts + 1 > $2
+                                THEN NOW() + INTERVAL(mins => $3)
+                                ELSE NULL END
+                    WHERE id = $1`,
+                    [user.id, MAX_INTENTOS, BLOQUEO_MIN]
+                )
+            }
+
+            return res.status(401).json(GENERICO)
+
+        }
+
+        await pool.query(
+            `UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = NOW() WHERE id = $1`,
+            [user.id]
+        )
+
+        const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        res.cookie('token', token, {
+            httpOnly: true,
+            sameSite: 'strict',
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 60 * 60 * 1000,
+        });
+
+        res.json({ message: 'Login exitoso', username: user.username });
+
+    } catch (err){
+        console.log(err) {
+            res.status(500).json({ message: 'Error interno del servidor' })            
+        }
+    }
+
+
 })
 
 app.listen(3000, () => {
