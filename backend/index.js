@@ -1,10 +1,19 @@
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
+const argon2 = require('argon2');
+
+if(!process.env.JWT_SECRET){
+    console.error('Falta la variable de entorno JWT_SECRET');
+    process.exit(1);
+}
 
 const app = express();
 
-app.use(express.json());
+app.use(express.json({ limit: '10kb' }));
+app.use(cookieParser());
 
 const pool = new Pool({
     host: process.env.DB_HOST,
@@ -13,6 +22,57 @@ const pool = new Pool({
     password: process.env.DB_PASSWORD,
     database:process.env.DB_NAME,
 });
+
+const MAX_INTENTOS = 5;
+const BLOQUEO_MIN = 15;
+const GENERICO = { message: 'Usuario o contraseña incorrectos' };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 app.get('/login', (req, res) => {
     res.send('Login route brou')
