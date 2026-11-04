@@ -27,12 +27,10 @@ const MAX_INTENTOS = 5;
 const BLOQUEO_MIN = 15;
 const GENERICO = { message: 'Usuario o contraseña incorrectos' };
 
-
-
-
-
-
-
+let DUMMY_HASH;
+argon2.hash('dummy-password').then(hash => {
+    DUMMY_HASH = hash;
+});
 
 
 
