@@ -140,6 +140,11 @@ app.post('/login', rateLimitLogin, async (req, res) => {
 
 })
 
+app.get('/api/me', requireAuth, (req, res) => {    
+    res.json({ id: req.user.sub });
+});
+
+
 app.listen(3000, () => {
     console.log('Server is running on port 3000');
 })
