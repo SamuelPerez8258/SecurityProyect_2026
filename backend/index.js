@@ -144,6 +144,10 @@ app.get('/api/me', requireAuth, (req, res) => {
     res.json({ id: req.user.sub });
 });
 
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('token');
+    res.json({ message: 'Sesión cerrada' });
+});
 
 app.listen(3000, () => {
     console.log('Server is running on port 3000');
