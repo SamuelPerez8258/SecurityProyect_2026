@@ -51,7 +51,14 @@ function rateLimitLogin(req, res, next) {
     next();
 }
 
-
+function requireAuth(req, res, next) {
+    try{
+        req.user = jwt.verify(req.cookies.token, process.env.JWT_SECRET);
+        next();
+    } catch {
+        res.status(401).json({ message: 'No autorizado' })
+    }
+}
 
 
 
