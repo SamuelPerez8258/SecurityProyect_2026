@@ -145,63 +145,6 @@ app.use((err, req, res, next) => {
     res.status(err.status || 500).json({ message: 'Solicitud inválida' });
 });
 
-
-
-
-
-
-
-
-
-app.post('/api/register', rateLimitLogin, async (req, res) => {
-    const { username, email, password } = req.body ?? {};
-
-    // Los tres datos deben ser texto
-    if(typeof username !== 'string' || typeof email !== 'string' || typeof password !== 'string'){
-        return res.status(400).json({ message: 'Datos invalidos' })
-    }
-
-    const usernameLimpio = username.trim();
-    const emailLimpio = email.trim().toLowerCase();
-
-    // Formato: usuario de 3 a 30 caracteres, correo válido, contraseña de 10 a 128
-    if(!/^[a-zA-Z0-9_]{3,30}$/.test(usernameLimpio) ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio) ||
-        emailLimpio.length > 250 ||
-        password.length < 10 || password.length > 128
-    ){
-        return res.status(400).json({ message: 'Datos invalidos' })
-    }
-
-    try{
-        const hash = await argon2.hash(password);
-        await pool.query(
-            'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3)',
-            [usernameLimpio, emailLimpio, hash]
-        );
-        res.status(201).json({ message: 'Cuenta creada' });
-    } catch (err){
-        // 23505 = el correo (o usuario) ya existe
-        if(err.code === '23505'){
-            return res.status(409).json({ message: 'No se pudo registrar con esos datos' });
-        }
-        console.error(err.stack);
-        res.status(500).json({ message: 'Error interno del servidor' });
-    }
-})
-
-
-
-
-
-
-
-
-
-
-
-
-
 app.listen(process.env.PORT || 3000, () => {
     console.log('Server is running on port ' + (process.env.PORT || 3000));
 })
