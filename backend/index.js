@@ -1,11 +1,31 @@
+require('dotenv').config();
 const express = require('express');
+const { Pool } = require('pg');
 
 const app = express();
 
 app.use(express.json());
 
+const pool = new Pool({
+    host: process.env.DB_HOST,
+    port: Number(process.env.DB_PORT),
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database:process.env.DB_NAME,
+});
+
 app.get('/login', (req, res) => {
     res.send('Login route brou')
+})
+
+app.get('/api/db-test', async (req, res) => {
+    try{
+        const resultado = await pool.query('SELECT COUNT(*) FROM users');
+        res.json({ usuarios: resultado.rows[0].count })
+    } catch (err){
+        console.log(err.stack);
+        res.status(500).json({ error: 'no se pudo conectar con la base de datos', detalle: err.message })
+    }
 })
 
 app.post('/api/login', (req, res) => {
