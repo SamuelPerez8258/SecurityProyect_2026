@@ -63,3 +63,56 @@ CREATE TABLE IF NOT EXISTS cart_items (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT cart_items_unique UNIQUE (cart_id, booster_pack_id)
 );
+
+
+
+-- Tabla para las órdenes 
+CREATE TABLE IF NOT EXISTS orders (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    total DECIMAL(10, 2) NOT NULL CHECK (total >= 0),
+    status VARCHAR(50) DEFAULT 'simulated_success',
+    shipping_address TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+-- Tabla de detalles de la orden 
+CREATE TABLE IF NOT EXISTS order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    booster_pack_id INT NOT NULL REFERENCES booster_packs(id) ON DELETE CASCADE,
+    quantity INT NOT NULL CHECK (quantity > 0),
+    unit_price DECIMAL(10, 2) NOT NULL CHECK (unit_price >= 0)
+);
+
+
+
+-- Tabla para el historial de facturas
+CREATE TABLE IF NOT EXISTS invoices (
+    id SERIAL PRIMARY KEY,
+    order_id INT UNIQUE NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    invoice_number VARCHAR(50) UNIQUE NOT NULL,
+    issued_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    tax_amount DECIMAL(10, 2) NOT NULL CHECK (tax_amount >= 0),
+    total_amount DECIMAL(10, 2) NOT NULL CHECK (total_amount >= 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+-- Tabla de cartas en venta por los usuarios 
+CREATE TABLE IF NOT EXISTS user_card_listings (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    card_name VARCHAR(150) NOT NULL,
+    expansion_name VARCHAR(150),
+    card_condition VARCHAR(50),
+    price DECIMAL(10, 2) NOT NULL CHECK (price >= 0),
+    stock INT NOT NULL DEFAULT 1 CHECK (stock >= 0),
+    image_url TEXT,
+    status VARCHAR(50) DEFAULT 'available',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
