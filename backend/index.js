@@ -61,6 +61,39 @@ function requireAuth(req, res, next) {
     }
 }
 
+app.post('/register', async (req, res) => {
+    const { email, username, password } = req.body;
+
+    if (!email || !username || !password) {
+        return res.status(400).json({ error: "Todos los campos son obligatorios" });
+    }
+
+    try {
+        // Hasheamos la contraseña usando argon2 (compatible con el login de Samuel)
+        const passwordHash = await argon2.hash(password);
+
+        const query = `
+            INSERT INTO users (email, username, password_hash, is_active, created_at)
+            VALUES ($1, $2, $3, true, NOW())
+            RETURNING id, email, username, created_at;
+        `;
+
+        const values = [email, username, passwordHash];
+        const result = await pool.query(query, values);
+
+        return res.status(201).json({
+            mensaje: "¡Usuario registrado con éxito!",
+            usuario: result.rows[0]
+        });
+
+    } catch (error) {
+        if (error.code === '23505') {
+            return res.status(400).json({ error: "El correo o el nombre de usuario ya están registrados." });
+        }
+        return res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/login', rateLimitLogin, async (req, res) => {
     const { email, password } = req.body ?? {};
 
