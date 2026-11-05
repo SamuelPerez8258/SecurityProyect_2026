@@ -43,3 +43,23 @@ CREATE TABLE IF NOT EXISTS booster_packs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+
+
+-- Tabla para el carrito 
+CREATE TABLE IF NOT EXISTS carts (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+-- Tabla de Ítems del Carrito con restricción única (para evitar duplicados)
+CREATE TABLE IF NOT EXISTS cart_items (
+    id SERIAL PRIMARY KEY,
+    cart_id INT NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
+    booster_pack_id INT NOT NULL REFERENCES booster_packs(id) ON DELETE CASCADE,
+    quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT cart_items_unique UNIQUE (cart_id, booster_pack_id)
+);
