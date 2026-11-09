@@ -129,8 +129,14 @@ export async function eliminarUsuarioMock(id: string): Promise<void> {
   escribir(K_USUARIOS, lista.filter(u => u.id !== id));
 }
 
+/**
+ * Alta de cuenta. El registro público solo manda usuario, correo y contraseña: el
+ * teléfono y la dirección se rellenan en el perfil y el rol lo promociona el admin,
+ * así que aquí nacen vacíos y como `comprador`.
+ */
 export async function registrarseMock(d: {
-  nombre: string; email: string; telefono: string; direccion: string; rol: Usuario['rol'];
+  nombre: string; email: string; password?: string;
+  telefono?: string; direccion?: string; rol?: Usuario['rol'];
 }): Promise<Sesion> {
   await retardo();
   const lista = usuariosMock();
@@ -142,9 +148,9 @@ export async function registrarseMock(d: {
     id: idNuevo('u'),
     nombre: d.nombre.trim() || nombreDesde(email),
     email,
-    telefono: d.telefono.trim(),
-    direccion: d.direccion.trim(),
-    rol: d.rol,
+    telefono: (d.telefono || '').trim(),
+    direccion: (d.direccion || '').trim(),
+    rol: d.rol || 'comprador',
     estado: 'activo',
     creado: new Date().toISOString()
   };

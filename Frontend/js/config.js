@@ -1,5 +1,5 @@
 /**
- * Configuración del frontend estático. Editar `frontend/sitio/js/config.js` y recargar:
+ * Configuración del frontend estático. Editar `Frontend/js/config.js` y recargar:
  * no hace falta compilación para cambiar de modo. `URL_BASE` vacío (o modo
  * `mock`) deja el sitio funcionando con datos locales en localStorage;
  * `modo: 'http'` manda todo al backend real del equipo del servidor.
