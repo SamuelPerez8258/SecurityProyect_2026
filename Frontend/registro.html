@@ -43,25 +43,9 @@
       <p class="lead fade" style="--d:80ms">Crea tu cuenta. Tarda menos que abrir un sobre.</p>
 
       <form id="registroForm" novalidate>
-        <fieldset class="fieldset fade" style="--d:140ms">
-          <legend>¿Cómo quieres usar la cuenta?</legend>
-          <div class="rol-opts">
-            <label class="rol-opt on" id="opt-comprador">
-              <input type="radio" name="rol" value="comprador" checked>
-              <b>Comprar</b>
-              <span>Guarda piezas en tu Pokédex, paga por transferencia y descarga tu factura.</span>
-            </label>
-            <label class="rol-opt" id="opt-vendedor">
-              <input type="radio" name="rol" value="vendedor">
-              <b>Vender</b>
-              <span>Publica tus cartas con foto, graduación y precio. Revisamos antes de publicar.</span>
-            </label>
-          </div>
-        </fieldset>
-
         <div class="field fade" style="--d:200ms" id="campo-nombre">
-          <label for="regNombre">Nombre completo</label>
-          <input id="regNombre" name="nombre" autocomplete="name" placeholder="Ana Martínez">
+          <label for="regNombre">Nombre de usuario</label>
+          <input id="regNombre" name="nombre" autocomplete="username" placeholder="tu_usuario">
         </div>
 
         <div class="field fade" style="--d:240ms" id="campo-correo">
@@ -70,22 +54,6 @@
         </div>
 
         <div class="field-doble fade" style="--d:280ms">
-          <div class="field" id="campo-telefono">
-            <label for="regTel">Teléfono (opcional)</label>
-            <input id="regTel" type="tel" name="telefono" autocomplete="tel" placeholder="7890 1234">
-          </div>
-          <div class="field">
-            <label for="regDepto">Departamento</label>
-            <select id="regDepto" name="departamento"></select>
-          </div>
-        </div>
-
-        <div class="field fade" style="--d:320ms" id="campo-direccion">
-          <label for="regDir">Dirección de entrega</label>
-          <input id="regDir" name="direccion" autocomplete="street-address" placeholder="Col. Escalón, calle X, n.º 12">
-        </div>
-
-        <div class="field-doble fade" style="--d:360ms">
           <div class="field" id="campo-clave">
             <label for="regPw">Contraseña</label>
             <input id="regPw" type="password" name="password" autocomplete="new-password" placeholder="mínimo 6">
@@ -96,7 +64,7 @@
           </div>
         </div>
 
-        <button class="btn btn-primary fade" id="registroBtn" type="submit" style="--d:420ms">Crear cuenta</button>
+        <button class="btn btn-primary fade" id="registroBtn" type="submit" style="--d:360ms">Crear cuenta</button>
       </form>
 
       <p class="msg" id="mensaje" role="status" aria-live="polite"></p>
