@@ -70,8 +70,8 @@ function validar() {
     marcar('email', true);
     textos.push(mail ? 'El correo no tiene un formato válido.' : 'Escribe un correo para contactarte.');
   }
-  if (clave.length < 6) {
-    marcar('pw', true); textos.push('La contraseña debe tener al menos 6 caracteres.');
+  if (clave.length < 8) {
+    marcar('pw', true); textos.push('La contraseña debe tener al menos 8 caracteres.');
   } else if (CONTRASENAS_COMUNES.includes(clave.toLowerCase())) {
     marcar('pw', true); textos.push('Esa contraseña es demasiado común; usa una distinta.');
   }

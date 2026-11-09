@@ -46,7 +46,11 @@ async function pedir(ruta, opciones = {}) {
 const json = (body) => ({ method: 'POST', body: JSON.stringify(body) });
 export const http = {
     iniciarSesion: (email, password) => pedir('/auth/login', json({ email, password })),
-    registrarse: (d) => pedir('/auth/registro', json(d)),
+ registrarse: (d) => pedir('/register', json({
+        email: d.email,
+        username: d.nombre, 
+        password: d.password
+    })),
     productos: () => pedir('/productos'),
     crearProducto: (b) => pedir('/productos', json(b)),
     actualizarProducto: (id, p) => pedir(`/productos/${id}`, { method: 'PUT', body: JSON.stringify(p) }),

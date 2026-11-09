@@ -8,6 +8,6 @@
  * la capa de datos, los valores de abajo son los que se escriben.
  */
 export const CONFIG = {
-    URL_BASE: '',
-    modo: 'mock'
+    URL_BASE: 'http://localhost:3000',
+    modo: 'http'
 };
