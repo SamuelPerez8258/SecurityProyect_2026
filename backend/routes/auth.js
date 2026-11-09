@@ -14,37 +14,76 @@ argon2.hash('dummy-password').then(hash => {
 });
 
 
+const registroIpMap = new Map();
+function rateLimitRegister(req, res, next) {
+    const ahora = Date.now();
+    const registro = registroIpMap.get(req.ip) ?? { count: 0, desde: ahora };
 
-router.post('/register', async (req, res) => {
-    const { email, username, password } = req.body;
+    if (ahora - registro.desde > 15 * 60 * 1000) {
+        registro.count = 0;
+        registro.desde = ahora;
+    }
 
-    if (!email || !username || !password) {
-        return res.status(400).json({ error: "Todos los campos son obligatorios" });
+    registro.count++;
+    registroIpMap.set(req.ip, registro);
+
+
+    if (registro.count > 5) {
+        return res.status(429).json({ message: 'Demasiados intentos de registro. Intente más tarde.' });
+    }
+
+    next();
+}
+
+
+router.post('/register', rateLimitRegister, async (req, res) => {
+    const { email, username, password } = req.body ?? {};
+
+    
+    if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string' ||
+        email.trim() === '' || username.trim() === '' || password === ''
+    ) {
+        return res.status(400).json({ error: "Todos los campos son obligatorios y deben ser texto válido." });
+    }
+
+    if (email.length > 250 || !email.includes('@')) {
+        return res.status(400).json({ error: "El correo electrónico no es válido o excede el límite." });
+    }
+
+    const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+    if (!usernameRegex.test(username)) {
+        return res.status(400).json({ error: "El nombre de usuario debe tener entre 3 y 30 caracteres y solo puede contener letras, números y guiones bajos." });
+    }
+
+  
+    if (password.length < 8 || password.length > 128) {
+        return res.status(400).json({ error: "La contraseña debe tener entre 8 y 128 caracteres." });
     }
 
     try {
-        // Hasheamos la contraseña usando argon2 (compatible con el login de Samuel)
+        const emailNormalizado = email.trim().toLowerCase();
         const passwordHash = await argon2.hash(password);
 
         const query = `
             INSERT INTO users (email, username, password_hash, is_active, created_at)
             VALUES ($1, $2, $3, true, NOW())
-            RETURNING id, email, username, created_at;
+            RETURNING id;
         `;
 
-        const values = [email, username, passwordHash];
-        const result = await pool.query(query, values);
+        const values = [emailNormalizado, username, passwordHash];
+        await pool.query(query, values);
 
         return res.status(201).json({
-            mensaje: "¡Usuario registrado con éxito!",
-            usuario: result.rows[0]
+            mensaje: "¡Usuario registrado con éxito!"
         });
 
     } catch (error) {
         if (error.code === '23505') {
             return res.status(400).json({ error: "El correo o el nombre de usuario ya están registrados." });
         }
-        return res.status(500).json({ error: error.message });
+
+        console.error("Error en registro:", error.message);
+        return res.status(500).json({ error: "Error interno del servidor." });
     }
 });
 

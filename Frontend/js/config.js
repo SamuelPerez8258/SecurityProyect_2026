@@ -9,5 +9,5 @@
  */
 export const CONFIG = {
     URL_BASE: '',
-    modo: 'mock'
+    modo: 'http'
 };
