@@ -36,11 +36,13 @@ export const api = {
     actualizarUsuario: (id, p) => API_MODO === 'http' ? http.actualizarUsuario(id, p) : actualizarUsuarioMock(id, p),
     eliminarUsuario: (id) => API_MODO === 'http' ? http.eliminarUsuario(id) : eliminarUsuarioMock(id),
     iniciarSesion: (email, password) => API_MODO === 'http' ? http.iniciarSesion(email, password) : iniciarSesionMock(email, password),
+    /** Registro público: solo usuario, correo y contraseña. Los demás campos son del
+     *  alta desde el panel de administración y del perfil. */
     registrarse: (d) => {
         if (API_MODO === 'http')
             return http.registrarse(d);
-        return d.password.length < 6
-            ? Promise.reject(new Error('La contraseña debe tener al menos 6 caracteres.'))
+        return d.password.length < 8
+            ? Promise.reject(new Error('La contraseña debe tener al menos 8 caracteres.'))
             : registrarseMock(d);
     },
     facturas: () => API_MODO === 'http' ? http.facturas() : Promise.resolve(facturasMock()),
