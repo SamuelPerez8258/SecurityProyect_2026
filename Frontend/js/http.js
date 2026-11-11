@@ -19,7 +19,6 @@ async function pedir(ruta, opciones = {}) {
     // FormData viaja sin Content-Type: el navegador pone el boundary del multipart.
     const esJson = typeof opciones.body === 'string';
     const res = await fetch(URL_BASE.replace(/\/$/, '') + ruta, {
-        credentials: 'include',
         ...opciones,
         headers: {
             Accept: 'application/json',
@@ -32,9 +31,8 @@ async function pedir(ruta, opciones = {}) {
         let mensaje = `El servidor respondió ${res.status}.`;
         try {
             const c = await res.json();
-            const m = c?.mensaje ?? c?.message ?? c?.error;
-            if (m)
-                mensaje = m;
+            if (c?.mensaje)
+                mensaje = c.mensaje;
         }
         catch {
             /* cuerpo no JSON */
@@ -47,8 +45,8 @@ async function pedir(ruta, opciones = {}) {
 }
 const json = (body) => ({ method: 'POST', body: JSON.stringify(body) });
 export const http = {
-    iniciarSesion: (email, password) => pedir('/api/login', json({ email, password })).then(r => ({ usuario: { nombre: r.username, email: email.trim().toLowerCase(), rol: 'comprador' } })),
-    registrarse: (d) => pedir('/register', json({ email: d.email, username: d.nombre, password: d.password })).then(() => http.iniciarSesion(d.email, d.password)),
+    iniciarSesion: (email, password) => pedir('/auth/login', json({ email, password })),
+    registrarse: (d) => pedir('/auth/registro', json(d)),
     productos: () => pedir('/productos'),
     crearProducto: (b) => pedir('/productos', json(b)),
     actualizarProducto: (id, p) => pedir(`/productos/${id}`, { method: 'PUT', body: JSON.stringify(p) }),

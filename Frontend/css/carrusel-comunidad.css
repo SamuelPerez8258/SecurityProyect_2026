@@ -1,6 +1,4 @@
-/* Balda tipo ruleta 3D de las cartas de la comunidad (CarruselComunidad.tsx).
-   La geometría la manda el JS con --cq-alto/--cq-ancho/--cq-R; aquí solo se
-   describe la caja y la cámara. */
+ 
 
 .cq {
   --cq-alto: 234px;
@@ -14,6 +12,7 @@
 .cq-anaquel {
   position: relative;
   height: clamp(230px, 30vh, 310px);
+  height: clamp(230px, 30dvh, 310px);
   overflow: hidden;
   outline: none;
   touch-action: pan-y;
@@ -29,8 +28,7 @@
   border-radius: 12px;
 }
 
-/* La camara cae sobre el eje del cilindro: perspectiva = radio y origen al
-   centro exacto del anaquel. preserve-3d comparte ese espacio entre las cintas. */
+ 
 .cq-lista {
   position: absolute;
   inset: 0;
@@ -39,7 +37,7 @@
   transform-style: preserve-3d;
 }
 
-/* Cada cinta se centra por margen negativo: el transform del JS es puro 3D. */
+ 
 .cq-cinta {
   position: absolute;
   left: 50%;
@@ -62,7 +60,6 @@
   box-shadow: 0 14px 26px -16px rgba(11, 11, 15, 0.5);
 }
 
-/* Reutiliza el modelo de carta de la vitrina, solo que a escala de balda. */
 .cq-cv .m {
   position: absolute;
   inset: 0;
@@ -76,8 +73,7 @@
   padding: 6%;
   border-radius: 14px;
   border-width: 2px;
-  /* Solo la base negra: el halo amarillo de la vitrina, sumado entre tantas
-     cintas pegadas, pintaba una mancha amarilla en los bordes del anaquel. */
+ 
   box-shadow:
     0 3cqi 0 var(--tinta),
     0 0 22px -8px rgba(11, 11, 15, .28);
@@ -95,7 +91,6 @@
   gap: 6px;
 }
 
-/* Tipografía por contenedor: la letra sigue al ancho de la carta, no al del navegador. */
 .cq-cv .card-tag { font-size: max(8.5px, 4.2cqi); padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
 .cq-cv .card-no { font-size: max(8.5px, 3.9cqi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cq-cv .card-name { font-size: max(11px, 4.8cqi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -103,13 +98,11 @@
 .cq-cv .gchip { font-size: max(8px, 3.7cqi); padding: 2px 6px; border-radius: 6px; box-shadow: none; }
 .cq-cv .card-1of1 { font-size: max(8px, 3.7cqi); padding: 2px 6px; border-radius: 6px; }
 
-/* La carta de frente se levanta con sombra neutra: sin halo de color, para que
-   el anaquel no vuelva a mancharse de amarillo en los extremos. */
+ 
 .cq-cinta[data-frente='true'] .cq-cv {
   box-shadow: 0 18px 30px -16px rgba(11, 11, 15, .5);
 }
 
-/* ---------------- el pie: flechas y rótulo ---------------- */
 .cq-pie {
   display: flex;
   align-items: center;
@@ -120,8 +113,8 @@
 
 .cq-flecha {
   flex: none;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   background: transparent;
@@ -151,7 +144,6 @@
   min-width: min(92vw, 420px);
 }
 
-/* Cada línea sube saliendo de su propia máscara. */
 .cq-mascara {
   display: block;
   overflow: hidden;
@@ -223,11 +215,16 @@
   color: var(--mid);
 }
 
-/* ---------------- móvil ---------------- */
 @media (max-width: 820px) {
   .cq-anaquel { height: clamp(200px, 42vw, 260px); }
   .cq-pie { gap: 10px; }
-  .cq-flecha { width: 36px; height: 36px; }
   .cq-rotulos { min-width: 0; }
   .cq-pista { display: none; }
+  /* A este ancho la carta del anillo ronda los 120 px: nombre y precio nunca
+   * caben en una línea y el nombre salía "Umb…". Se apilan, cada uno con el
+   * ancho completo, y el nombre sube a 12 px para que se lea de verdad. */
+  .cq-cv .card-footer { grid-template-columns: minmax(0, 1fr); gap: 2px; align-items: start; }
+  .cq-cv .card-name { font-size: 12px; }
+  .cq-cv .card-price { font-size: 11px; }
+  .cq-serie, .cq-vendedor, .cq-nota { font-size: 12px; }
 }

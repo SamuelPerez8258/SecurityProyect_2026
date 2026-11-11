@@ -73,11 +73,9 @@ export const api = {
   iniciarSesion: (email: string, password: string): Promise<Sesion> =>
     API_MODO === 'http' ? http.iniciarSesion(email, password) : iniciarSesionMock(email, password),
 
-  /** Registro público: solo usuario, correo y contraseña. Los demás campos son del
-   *  alta desde el panel de administración y del perfil. */
   registrarse: (d: {
-    nombre: string; email: string; password: string; telefono?: string;
-    direccion?: string; rol?: Usuario['rol'];
+    nombre: string; email: string; telefono: string; direccion: string;
+    rol: Usuario['rol']; password: string;
   }): Promise<Sesion> => {
     if (API_MODO === 'http') return http.registrarse(d);
     return d.password.length < 6

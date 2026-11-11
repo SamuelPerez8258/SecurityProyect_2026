@@ -112,6 +112,7 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     lista.style.setProperty('--cq-ancho', m.ancho.toFixed(2) + 'px');
     lista.style.setProperty('--cq-R', m.R.toFixed(2) + 'px');
     m.sucio = true;
+    despierta();
   };
 
   /** El rótulo sube por su máscara al cambiar la pieza de frente. */
@@ -127,29 +128,38 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
       });
   };
 
+  /* Última cadena escrita en cada cinta. La mayor parte del anillo está fuera de
+   * recorte y no se mueve: comparar antes de escribir quita del frame una
+   * veintena de mutaciones de estilo que el navegador pagaba igual. */
+  const guardado = cintas.map(() => ({ v: '', t: '', z: '', f: '', b: '' }));
+
   const pinta = (avisar) => {
     for (let v = 0; v < cintas.length; v++) {
+      const el = cintas[v];
+      const g = guardado[v];
       const a = angulo(v, m.pos, m.paso);
       if (Math.abs(a) > m.cull) {
-        cintas[v].style.visibility = 'hidden';
+        if (g.v !== 'h') { g.v = 'h'; el.style.visibility = 'hidden'; }
         continue;
       }
-      cintas[v].style.visibility = 'visible';
+      if (g.v !== 'v') { g.v = 'v'; el.style.visibility = 'visible'; }
 
       const r = a * RAD;
       const e = elevacion[v];
-      cintas[v].style.transform =
-        `translate3d(${(m.R * Math.sin(r)).toFixed(1)}px,` +
+      const t = `translate3d(${(m.R * Math.sin(r)).toFixed(1)}px,` +
         `${(-e * m.alto * 0.06).toFixed(1)}px,${(m.R * (1 - Math.cos(r))).toFixed(1)}px)` +
         ` rotateY(${(-a).toFixed(2)}deg)`;
-      cintas[v].style.zIndex = String(100 - Math.round(Math.abs(a) / m.paso));
-      cintas[v].dataset.frente = Math.abs(a) < m.paso / 2 ? 'true' : 'false';
+      if (g.t !== t) { g.t = t; el.style.transform = t; }
+      const z = String(100 - Math.round(Math.abs(a) / m.paso));
+      if (g.z !== z) { g.z = z; el.style.zIndex = z; }
+      const f = Math.abs(a) < m.paso / 2 ? 'true' : 'false';
+      if (g.f !== f) { g.f = f; el.dataset.frente = f; }
 
       const cara = caras[v];
       if (cara) {
         const lejos = aprieta(Math.abs(a) / m.cull, 0, 1);
-        cara.style.filter =
-          `brightness(${(1 - 0.36 * lejos).toFixed(3)}) saturate(${(1 - 0.3 * lejos).toFixed(3)})`;
+        const b = `brightness(${(1 - 0.36 * lejos).toFixed(3)}) saturate(${(1 - 0.3 * lejos).toFixed(3)})`;
+        if (g.b !== b) { g.b = b; cara.style.filter = b; }
       }
     }
 
@@ -166,6 +176,12 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
   };
 
   const sinGiro = sinAnimacion();
+  /* En tablet y móvil el giro ambiental se pinta a ~30 fps: con el dedo encima
+   * el arrastre sigue yendo fino y el coste del bucle baja a la mitad. */
+  const REFRESCO = () => (window.innerWidth <= 820 ? 33 : 0);
+  let pintado = 0;
+  let corriendo = false;
+
   const bucle = t => {
     const dt = Math.min(50, t - m.previo) || 16;
     m.previo = t;
@@ -176,6 +192,8 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
 
     if (!sinGiro) m.pos += (m.destino - m.pos) * (1 - Math.exp(-dt * (m.abajo ? K_ARRASTRE : K_SUELTO)));
     else m.pos = m.destino;
+    const anda = Math.abs(m.destino - m.pos) > 0.0004;
+    if (!anda) m.pos = m.destino;
 
     let sube = false;
     for (let v = 0; v < elevacion.length; v++) {
@@ -186,10 +204,24 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
       }
     }
 
-    if (m.pos !== antes || m.sucio || sube) {
+    const movido = m.pos !== antes || sube || m.sucio;
+    /* El tope de refresco no puede dejar la última posición sin pintar: el frame
+     * en que el anillo se asienta siempre se pinta. */
+    if (movido && (!REFRESCO() || t - pintado >= REFRESCO() || !anda)) {
       m.sucio = false;
+      pintado = t;
       pinta(true);
     }
+    /* Se para cuando el anillo está en pausa (fuera de pantalla, con la ficha
+     * abierta, con el puntero encima o sin animación) y ya nada se mueve. */
+    const enPausa = m.encima || fichaAbierta || !m.visible || sinGiro;
+    if (enPausa && !movido && !m.abajo) corriendo = false;
+    else requestAnimationFrame(bucle);
+  };
+
+  const despierta = () => {
+    if (corriendo) return;
+    corriendo = true;
     requestAnimationFrame(bucle);
   };
 
@@ -203,7 +235,7 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     const cinta = e.target.closest('.cq-cinta');
     if (!cinta || cinta.dataset.frente === 'true') return;
     const v = Number(cinta.dataset.v);
-    if (Number.isFinite(v)) meta[v] = 1;
+    if (Number.isFinite(v)) { meta[v] = 1; despierta(); }
   };
 
   const sale = e => {
@@ -212,12 +244,15 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     const adonde = e.relatedTarget;
     if (adonde && cinta.contains(adonde)) return;
     const v = Number(cinta.dataset.v);
-    if (Number.isFinite(v)) meta[v] = 0;
+    if (Number.isFinite(v)) { meta[v] = 0; despierta(); }
   };
 
   const abrirFicha = p => {
     fichaAbierta = true;
-    montarFicha({ ancla, producto: p, aviso, canal: aviso, alCerrar: () => { fichaAbierta = false; } });
+    montarFicha({
+      ancla, producto: p, aviso, canal: aviso,
+      alCerrar: () => { fichaAbierta = false; despierta(); },
+    });
   };
 
   const baja = e => {
@@ -233,6 +268,7 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     } catch {
       /* un puntero sin captura posible sigue pudiendo arrastrar */
     }
+    despierta();
   };
 
   const muevePuntero = e => {
@@ -240,6 +276,7 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     const dx = e.clientX - m.x0;
     m.movido = Math.max(m.movido, Math.abs(dx));
     m.destino = m.t0 - dx / m.pasoPx;
+    despierta();
   };
 
   const suelta = e => {
@@ -263,6 +300,7 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     } else {
       m.destino = Math.round(m.destino);
     }
+    despierta();
   };
 
   let reten = 0;
@@ -272,8 +310,9 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     e.preventDefault();
     m.hasta = performance.now() + REPOSO;
     m.destino += (aprieta(dx, -120, 120) / m.pasoPx) * 0.5;
+    despierta();
     clearTimeout(reten);
-    reten = window.setTimeout(() => { m.destino = Math.round(m.destino); }, 160);
+    reten = window.setTimeout(() => { m.destino = Math.round(m.destino); despierta(); }, 160);
   };
 
   const teclas = e => {
@@ -282,11 +321,13 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
       e.preventDefault();
       m.hasta = performance.now() + REPOSO;
       m.destino = Math.round(m.destino) + 1;
+      despierta();
     }
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       m.hasta = performance.now() + REPOSO;
       m.destino = Math.round(m.destino) - 1;
+      despierta();
     }
     if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === anaquel) {
       e.preventDefault();
@@ -298,12 +339,13 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
   const flecha = pasoGirado => {
     m.hasta = performance.now() + REPOSO;
     m.destino = Math.round(m.destino) + pasoGirado;
+    despierta();
   };
 
   anaquel.addEventListener('pointerover', entra);
   anaquel.addEventListener('pointerout', sale);
   anaquel.addEventListener('pointerenter', () => { m.encima = true; });
-  anaquel.addEventListener('pointerleave', () => { m.encima = false; });
+  anaquel.addEventListener('pointerleave', () => { m.encima = false; despierta(); });
   anaquel.addEventListener('pointerdown', baja);
   anaquel.addEventListener('pointermove', muevePuntero);
   anaquel.addEventListener('pointerup', suelta);
@@ -322,14 +364,17 @@ export function montarCarruselComunidad({ ancla, productos, aviso }) {
     if (p) abrirFicha(p);
   });
 
-  const observador = new IntersectionObserver(en => { m.visible = en[0].isIntersecting; }, { threshold: 0.25 });
+  const observador = new IntersectionObserver(en => {
+    m.visible = en[0].isIntersecting;
+    despierta();
+  }, { threshold: 0.25 });
   const medidor = new ResizeObserver(() => tamano());
   observador.observe(anaquel);
   medidor.observe(anaquel);
 
   tamano();
   pinta(false);
-  requestAnimationFrame(bucle);
+  despierta();
   if (document.fonts) {
     document.fonts.ready.then(() => { tamano(); pinta(true); });
   }

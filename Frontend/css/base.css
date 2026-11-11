@@ -1,10 +1,4 @@
-/* ============================================================
-   PokéVault · base.css — tokens del sistema y reset
-   Compartido por Index.html y carrito.html.
-   Cada vista añade su hoja (index.css / carrito.css / login.css)
-   después de esta, así puede redefinir cualquier token.
-   ============================================================ */
-
+ 
 :root {
   --u: min(calc(100vw / 1600), calc(100vh / 900));
   --tinta: #0B0B0F;
@@ -15,15 +9,20 @@
   --mid: #5E5E66;
   --ease: cubic-bezier(.2, .8, .2, 1);
   --hdrH: calc(76 * var(--u));
-  --pad: calc(46 * var(--u));
+  --pad: calc(46 * var(--u) + var(--seg-h));
   --gl: 0;
   --glc: 255, 214, 10;
+  /* Con viewport-fit=cover la página llega al borde físico del iPhone: la muesca y
+     la barra de gestos se esquivan SUMANDO aire, nunca sustituyéndolo. En pantallas
+     sin áreas seguras estos tres valores valen 0 y el diseño no se entera. */
+  --seg-a: env(safe-area-inset-top, 0px);
+  --seg-h: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  --seg-b: env(safe-area-inset-bottom, 0px);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* Las vistas vanilla pintan todo el marcado y luego esconden con [hidden];
-   sin esta regla un .boton (display: inline-flex) ganaría por especificidad. */
+ 
 [hidden] { display: none !important; }
 
 html { scrollbar-gutter: stable; }

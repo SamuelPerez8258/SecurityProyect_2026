@@ -284,6 +284,26 @@ body{background:var(--papel);color:var(--tinta);
 .stamp.pagado{color:var(--tinta);border-style:solid;border-color:var(--tinta);background:var(--sol)}
 .stamp.anulada{color:var(--mid);border-color:rgba(11,11,15,.28);text-decoration:line-through}
 @media print{@page{size:A4;margin:14mm}html,body{background:#fff}.doc{border-width:2px;padding:0}.tbl-wrap{overflow:visible}}
+/* El archivo descargado se abre fuera de la app: a falta de los CSS de la app, la hoja
+   lleva sus propias bandas — celular en una columna y tableta con la composición ancha. */
+@media (max-width: 639px){
+  body{padding:calc(14 * var(--u))}
+  .doc{border-width:2px;border-radius:16px;padding:calc(18 * var(--u))}
+  .doc-top>div{flex:1 1 100%}
+  .doc-kind{text-align:left}
+  .doc-brand{font-size:calc(28 * var(--u))}
+  .doc-kind h2{font-size:calc(22 * var(--u))}
+  .party,.doc-foot{grid-template-columns:minmax(0,1fr)}
+  .doc-sum dl{width:100%}
+  .tbl{font-size:calc(11.5 * var(--u))}
+  .tbl th,.tbl td{padding:calc(8 * var(--u)) calc(5 * var(--u))}
+}
+@media (min-width: 640px) and (max-width: 820px){
+  .doc-top>div{flex:1 1 240px;min-width:0}
+  .doc-sum dl{width:calc(300 * var(--u))}
+  .tbl{font-size:calc(12 * var(--u))}
+  .tbl th,.tbl td{padding:calc(9 * var(--u)) calc(6 * var(--u))}
+}
 `;
 /** Nombre del archivo descargable: «factura-PV-2026-0001.html». */
 export const nombreArchivoFactura = (folio) => `factura-${String(folio || 'sin-folio').replace(/[^A-Za-z0-9_-]/g, '')}.html`;

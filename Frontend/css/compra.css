@@ -13,9 +13,7 @@ button { cursor: pointer; background: none; border: 0; }
 ul, ol { list-style: none; }
 :focus-visible { outline: 3px solid #3b82f6; outline-offset: 3px; border-radius: 6px; }
 
-/* ============ layout ============ */
-/* El encabezado, el chip de usuario y el toast viven en vitrina.css: esta hoja
-   solo aporta lo propio de la compra (líneas, formulario, factura, historial). */
+ 
 .wrap {
   display: grid;
   grid-template-columns: minmax(0, 1fr) calc(400 * var(--u));
@@ -48,7 +46,7 @@ ul, ol { list-style: none; }
   margin-bottom: calc(16 * var(--u));
 }
 
-/* ============ líneas del carrito ============ */
+ 
 .lines { display: flex; flex-direction: column; }
 .line {
   display: grid;
@@ -68,8 +66,7 @@ ul, ol { list-style: none; }
   background-color: var(--niebla);
   box-shadow: 0 0 calc(24px * var(--gl)) rgba(var(--glc), calc(.5 * var(--gl))), inset 0 0 calc(18px * var(--gl)) rgba(var(--glc), calc(.3 * var(--gl)));
 }
-/* El escaneo de la carta es enorme (1780x2480); sin esta regla el <img> crece
-   hasta su tamaño natural y revienta la fila. */
+ 
 .thumb img {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
@@ -149,6 +146,9 @@ ul, ol { list-style: none; }
   font-size: max(calc(15 * var(--u)), 14px);
 }
 .f input:focus, .f select:focus { background: #EEEFF2; box-shadow: inset 0 1px 2px rgba(11,11,15,.04), 0 0 0 4px rgba(255,214,10,.35); outline: none; }
+/* El anillo amarillo es tenue sobre el fondo claro: con teclado hace falta un
+   contorno propio (WCAG 2.4.7). */
+.f input:focus-visible, .f select:focus-visible { outline: 3px solid var(--tinta); outline-offset: 2px; }
 .f.err input, .f.err select { box-shadow: inset 0 0 0 2px var(--rojo); }
 .f small { font-size: max(calc(11 * var(--u)), 10px); color: var(--rojo); display: none; }
 .f.err small { display: block; }
@@ -164,7 +164,7 @@ ul, ol { list-style: none; }
 .chip[aria-pressed="true"] { background: var(--tinta); color: var(--papel); box-shadow: 0 3px 0 var(--sol); }
 
 /* ============ resumen ============ */
-.resumen { position: sticky; top: calc(var(--hdrH) + calc(20 * var(--u))); }
+.resumen { position: sticky; top: calc(var(--hdrH) + var(--seg-a) + calc(20 * var(--u))); }
 .promo { display: flex; gap: calc(8 * var(--u)); margin-bottom: calc(18 * var(--u)); }
 .promo input {
   flex: 1; min-width: 0; height: max(calc(46 * var(--u)), 44px);
@@ -356,14 +356,22 @@ ul, ol { list-style: none; }
   .wrap { grid-template-columns: minmax(0, 1fr); }
   .resumen { position: static; }
 }
+/* por debajo de 1025 manda el dedo: los controles chicos suben hasta los 44 px reglamentarios */
+@media (max-width: 1024px) {
+  .qty button { width: 44px; height: 44px; }
+  .rm { width: 44px; height: 44px; flex: 0 0 auto; }
+}
+
 @media (max-width: 820px) {
-  :root { --u: 1px; --hdrH: 64px; --pad: 16px; }
+  :root { --u: 1px; --hdrH: 64px; --pad: calc(16px + var(--seg-h)); }
   /* la marca ya lleva a la vitrina: el enlace duplicado no cabe en el encabezado móvil */
   .back { display: none; }
   .page-title { font-size: 30px; }
   .block { padding: 18px; border-radius: 20px; }
   .line { grid-template-columns: 72px minmax(0, 1fr); gap: 14px; }
-  .l-right { grid-column: 1 / -1; justify-content: space-between; }
+  /* en el celular la fila va suelta: si no cabe, baja de línea en vez de estirar el botón */
+  .l-right { grid-column: 1 / -1; flex-wrap: wrap; gap: 10px 14px; justify-content: space-between; }
+  .l-imp { min-width: 0; }
   .fields { grid-template-columns: minmax(0, 1fr); }
   .party, .doc-foot { grid-template-columns: 1fr; }
   .doc { padding: 18px; border-width: 2px; }
@@ -372,6 +380,18 @@ ul, ol { list-style: none; }
   .doc-sum dl { width: 100%; }
   .btn-comprar, .btn-line { width: 100%; }
   .doc-acts .btn-line { flex: 1 1 100%; }
+}
+/* Tableta (iPad mini, iPad en vertical): el documento ya tiene aire de sobra, así
+   que aquí se deshacen los ajustes de celular y vuelve la composición de escritorio
+   — cabecera y cajas en dos columnas y el desglose a la derecha sin estirarse. */
+@media (min-width: 640px) and (max-width: 820px) {
+  .doc-top > div { flex: 1 1 240px; min-width: 0; }
+  .doc-kind h2 { font-size: max(calc(26 * var(--u)), 22px); }
+  .party, .doc-foot { grid-template-columns: 1fr 1fr; }
+  .doc-sum dl { width: calc(300 * var(--u)); }
+  .tbl { font-size: 12px; }
+  .tbl th, .tbl td { padding: 9px 6px; }
+  .doc-acts .btn-line { flex: 1 1 calc(50% - 6px); width: auto; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 

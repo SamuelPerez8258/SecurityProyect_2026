@@ -52,7 +52,7 @@ export const http = {
   iniciarSesion: (email: string, password: string) =>
     pedir<Sesion>('/auth/login', json({ email, password })),
 
-  registrarse: (d: { nombre: string; email: string; password: string; telefono?: string; direccion?: string; rol?: Usuario['rol'] }) =>
+  registrarse: (d: { nombre: string; email: string; telefono: string; direccion: string; rol: Usuario['rol']; password: string }) =>
     pedir<Sesion>('/auth/registro', json(d)),
 
   productos: () => pedir<Producto[]>('/productos'),

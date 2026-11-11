@@ -1,10 +1,4 @@
-/**
- * Servidor estático de desarrollo para este carpeta (el frontend entregable).
- * Sirve solo para probar sin levantar Nginx ni Apache; el despliegue del
- * laboratorio usa el servidor web real.
- *
- *   node servidor-local.mjs [puerto]     →  http://localhost:4173
- */
+ 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -29,7 +23,6 @@ const TIPOS = {
 };
 
 createServer(async (req, res) => {
-  /* sin caché: el servidor es de desarrollo y un js viejo en disco daría errores falsos */
   const cabecera = { 'Cache-Control': 'no-store' };
   const url = decodeURIComponent((req.url || '/').split('?')[0].split('#')[0]);
   const ruta = normalize(join(RAIZ, url === '/' ? 'index.html' : url));
@@ -39,7 +32,6 @@ createServer(async (req, res) => {
     res.writeHead(200, { ...cabecera, 'Content-Type': TIPOS[extname(ruta).toLowerCase()] || 'application/octet-stream' });
     res.end(cuerpo);
   } catch {
-    /* sin extensión: se intenta como .html, igual que try_files de Nginx */
     try {
       const cuerpo = await readFile(ruta + '.html');
       res.writeHead(200, { ...cabecera, 'Content-Type': TIPOS['.html'] });
