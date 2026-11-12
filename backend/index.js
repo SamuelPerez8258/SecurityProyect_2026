@@ -19,6 +19,7 @@ app.use(express.json({ limit: '10kb' }));
 app.use(cookieParser());
 
 app.use('/', require('./routes/auth'));
+app.use('/', require('./routes/productos'));
 
 app.use((err, req, res, next) => {
     res.status(err.status || 500).json({ message: 'Solicitud inválida' });
