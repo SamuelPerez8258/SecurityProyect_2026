@@ -22,6 +22,7 @@ app.use(cookieParser());
 
 app.use('/', require('./routes/auth'));
 app.use('/', require('./routes/productos'));
+app.use('/', require('./routes/archivos'));
 
 app.use((err, req, res, next) => {
     res.status(err.status || 500).json({ message: 'Solicitud invalida' });
