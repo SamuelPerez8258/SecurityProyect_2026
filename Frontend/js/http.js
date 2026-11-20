@@ -1,11 +1,6 @@
 import { leerSesion } from "./sesion.js";
 import { CONFIG } from "./config.js";
-/**
- * Cliente HTTP del backend del equipo. La URL base y el modo viven en
- * `config.js`, que en el sitio entregado se edita y se recarga sin compilar.
- * Con `URL_BASE` vacío y sin modo fijado, api.ts usa el mock local y el sitio
- * sigue funcionando sin servidor.
- */
+
 export const URL_BASE = CONFIG.URL_BASE || '';
 export function modo() {
     if (CONFIG.modo === 'http')
@@ -47,8 +42,14 @@ async function pedir(ruta, opciones = {}) {
 }
 const json = (body) => ({ method: 'POST', body: JSON.stringify(body) });
 export const http = {
-    iniciarSesion: (email, password) => pedir('/api/login', json({ email, password })).then(r => ({ usuario: { nombre: r.username, email: email.trim().toLowerCase(), rol: 'comprador' } })),
-    registrarse: (d) => pedir('/register', json({ email: d.email, username: d.nombre, password: d.password })).then(() => http.iniciarSesion(d.email, d.password)),
+   
+        iniciarSesion: (email, password) => pedir('/api/login', json({ email, password })).then(r => ({ usuario: r.usuario, emitida: new Date().toISOString() })),
+    registrarse: (d) => pedir('/register', json({ email: d.email, username: d.nombre, password: d.password, rol: d.rol || 'comprador' })).then(() => http.iniciarSesion(d.email, d.password)),
+    sesionActual: () => pedir('/api/me'),
+    cerrarSesion: () => pedir('/api/logout', { method: 'POST' }),
+    
+    
+    
     productos: () => pedir('/productos'),
     crearProducto: (b) => pedir('/productos', json(b)),
     actualizarProducto: (id, p) => pedir(`/productos/${id}`, { method: 'PUT', body: JSON.stringify(p) }),
