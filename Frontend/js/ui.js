@@ -200,8 +200,3 @@ export function blindarVista() {
 
 export { RUTA };
 
-
-
-
-  if (salir) salir.addEventListener('click', () => {
-    limpiarSesion();
