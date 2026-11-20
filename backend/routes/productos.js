@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 
 const SELECT_PRODUCTO = `
   SELECT
@@ -20,7 +20,7 @@ const SELECT_PRODUCTO = `
     stock,
     imagen,
     origen,
-    vendedor_id        AS "vendedorId",
+    vendedor_id::text  AS "vendedorId",
     vendedor_nombre    AS "vendedorNombre",
     estado,
     unica,
@@ -32,9 +32,7 @@ const SELECT_PRODUCTO = `
   FROM productos
 `;
 
-// Campos que el cliente puede actualizar. La llave es el nombre que manda el
-// front, el valor es la columna real. Al venir de esta lista blanca, nunca
-// entra texto del usuario como nombre de columna.
+
 
 const CAMPOS = {
   nombre: 'nombre',
@@ -59,7 +57,7 @@ const CAMPOS = {
   conservacion: 'conservacion'
 };
 
-// GET /productos  publico. Comunidad y vender leen de aqui y filtran en el front.
+
 router.get('/productos', async (req, res) => {
   try {
     const { rows } = await pool.query(`${SELECT_PRODUCTO} ORDER BY creado DESC`);
@@ -70,8 +68,8 @@ router.get('/productos', async (req, res) => {
   }
 });
 
-// POST /productos  requiere sesion. Crea una publicacion del vendedor logueado.
-router.post('/productos', requireAuth, async (req, res) => {
+
+router.post('/productos', requireAuth, requireRole('comprador', 'vendedor', 'administrador'), async (req, res) => {
   const b = req.body ?? {};
 
   if (typeof b.nombre !== 'string' || b.nombre.trim() === '') {
@@ -131,9 +129,11 @@ router.post('/productos', requireAuth, async (req, res) => {
   }
 });
 
-// PUT /productos/:id  requiere sesion. Solo el dueno modifica su publicacion.
-router.put('/productos/:id', requireAuth, async (req, res) => {
-  const parche = req.body ?? {};
+
+router.put('/productos/:id', requireAuth, requireRole(), async (req, res) => {
+  const esAdmin = req.user.rol === 'administrador';
+  const parche = { ...(req.body ?? {}) };
+  if (!esAdmin) delete parche.estado;
   const sets = [];
   const values = [];
   let i = 1;
@@ -156,8 +156,9 @@ router.put('/productos/:id', requireAuth, async (req, res) => {
   try {
     values.push(req.params.id);
     values.push(req.user.sub);
+    values.push(esAdmin);
     const q = `UPDATE productos SET ${sets.join(', ')}
-               WHERE id = $${i} AND vendedor_id = $${i + 1}`;
+               WHERE id = $${i} AND (vendedor_id = $${i + 1} OR $${i + 2}::boolean)`;
     const r = await pool.query(q, values);
 
     if (r.rowCount === 0) {
@@ -172,12 +173,13 @@ router.put('/productos/:id', requireAuth, async (req, res) => {
   }
 });
 
-// DELETE /productos/:id  requiere sesion. Solo el dueno borra su publicacion.
-router.delete('/productos/:id', requireAuth, async (req, res) => {
+
+router.delete('/productos/:id', requireAuth, requireRole(), async (req, res) => {
   try {
+    const esAdmin = req.user.rol === 'administrador';
     const r = await pool.query(
-      'DELETE FROM productos WHERE id = $1 AND vendedor_id = $2',
-      [req.params.id, req.user.sub]
+      'DELETE FROM productos WHERE id = $1 AND (vendedor_id = $2 OR $3::boolean)',
+      [req.params.id, req.user.sub, esAdmin]
     );
 
     if (r.rowCount === 0) {
