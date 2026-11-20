@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Despliegue de PokeVault en Ubuntu Server (22.04 / 24.04)
+# Despliegue de PokeVault en Linux Server
+# Probado para Ubuntu/Debian (apt) y CentOS Stream/Rocky/Alma (dnf)
 # Uso: sudo bash desplegar.sh
 # Para borrar la BD y cargarla de nuevo: sudo RESET_DB=1 bash desplegar.sh
 set -euo pipefail
@@ -27,15 +28,41 @@ fi
 IP_VM="$(hostname -I | awk '{print $1}')"
 echo "[*] IP de la VM: $IP_VM"
 
-echo "[1/9] Paquetes del sistema"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y git curl ca-certificates gnupg openssl nginx postgresql postgresql-contrib
+if command -v apt-get >/dev/null 2>&1; then
+  DISTRO="debian"
+elif command -v dnf >/dev/null 2>&1; then
+  DISTRO="rhel"
+else
+  echo "Distro no soportada: se necesita apt-get o dnf"
+  exit 1
+fi
+echo "[*] Familia de distro: $DISTRO"
 
-echo "[2/9] Node.js 20"
-if ! command -v node >/dev/null 2>&1 || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 18 ]]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y nodejs
+node_ok() {
+  command -v node >/dev/null 2>&1 && [[ "$(node -v | cut -d. -f1 | tr -d v)" -ge 22 ]]
+}
+
+echo "[1/9] Paquetes del sistema"
+if [[ "$DISTRO" == "debian" ]]; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y git curl ca-certificates gnupg openssl nginx postgresql postgresql-contrib build-essential python3
+else
+  dnf install -y git curl ca-certificates openssl nginx postgresql-server postgresql-contrib policycoreutils-python-utils gcc-c++ make python3
+fi
+
+echo "[2/9] Node.js"
+if ! node_ok; then
+  if [[ "$DISTRO" == "debian" ]]; then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y nodejs
+  else
+    dnf install -y nodejs npm || true
+    if ! node_ok; then
+      curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+      dnf install -y nodejs
+    fi
+  fi
 fi
 NODE_BIN="$(command -v node)"
 echo "    node $(node -v) / npm $(npm -v)"
@@ -56,7 +83,18 @@ echo "[4/9] Usuario del sistema"
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$APP_USER"
 
 echo "[5/9] PostgreSQL"
+if [[ "$DISTRO" == "rhel" ]] && [[ ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
+  postgresql-setup --initdb
+fi
 systemctl enable --now postgresql
+
+# En CentOS/Rocky las conexiones por 127.0.0.1 vienen con "ident": se cambian a password
+HBA_FILE="$(sudo -u postgres psql -tAc 'SHOW hba_file' | tr -d '[:space:]')"
+if grep -Eq '^host[[:space:]].*[[:space:]](ident|peer)[[:space:]]*$' "$HBA_FILE"; then
+  sed -E -i 's/^(host[[:space:]].*[[:space:]])(ident|peer)[[:space:]]*$/\1scram-sha-256/' "$HBA_FILE"
+  systemctl reload postgresql
+  echo "    pg_hba.conf: conexiones host con password (scram-sha-256)"
+fi
 
 if [[ "$RESET_DB" == "1" ]]; then
   echo "    RESET_DB=1: borrando base $DB_NAME"
@@ -162,6 +200,8 @@ else
   echo "    AVISO: no existe $CONFIG_JS"
 fi
 
+# Carpeta de fotos que sube el backend (POST /archivos) y sirve Nginx
+mkdir -p "$APP_DIR/$FRONTEND_DIR/uploads"
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 chmod 600 "$APP_DIR/$BACKEND_DIR/.env"
 
@@ -189,7 +229,14 @@ systemctl enable pokevault
 systemctl restart pokevault
 
 echo "[9/9] Nginx (frontend estatico + proxy al backend)"
-cat > /etc/nginx/sites-available/pokevault <<NGINX
+if [[ "$DISTRO" == "debian" ]]; then
+  NGINX_CONF="/etc/nginx/sites-available/pokevault"
+else
+  NGINX_CONF="/etc/nginx/conf.d/pokevault.conf"
+  # El server por defecto de nginx.conf no debe competir con el nuestro
+  sed -i 's/ default_server;/;/' /etc/nginx/nginx.conf
+fi
+cat > "$NGINX_CONF" <<NGINX
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
@@ -213,11 +260,32 @@ server {
     }
 }
 NGINX
-ln -sf /etc/nginx/sites-available/pokevault /etc/nginx/sites-enabled/pokevault
-rm -f /etc/nginx/sites-enabled/default
+if [[ "$DISTRO" == "debian" ]]; then
+  ln -sf /etc/nginx/sites-available/pokevault /etc/nginx/sites-enabled/pokevault
+  rm -f /etc/nginx/sites-enabled/default
+fi
+
+# SELinux (CentOS/Rocky): nginx necesita leer el frontend y conectarse al backend
+if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce)" != "Disabled" ]]; then
+  setsebool -P httpd_can_network_connect 1
+  chcon -R -t httpd_sys_content_t "$APP_DIR/$FRONTEND_DIR"
+  echo "    SELinux: httpd_can_network_connect=1 y contexto httpd_sys_content_t en el frontend"
+fi
+
+# Firewall: abrir el puerto 80 si hay firewalld o ufw activo
+if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+  firewall-cmd --permanent --add-service=http
+  firewall-cmd --reload
+  echo "    firewalld: http abierto"
+fi
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+  ufw allow 80/tcp
+  echo "    ufw: 80/tcp abierto"
+fi
+
 nginx -t
 systemctl enable nginx
-systemctl reload nginx || systemctl restart nginx
+systemctl restart nginx
 
 echo
 echo "[*] Verificacion"
