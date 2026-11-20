@@ -11,6 +11,8 @@ if(!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32){
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 app.use(cors({
     origin: process.env.FRONTEND_ORIGIN,
     credentials: true
@@ -22,7 +24,7 @@ app.use('/', require('./routes/auth'));
 app.use('/', require('./routes/productos'));
 
 app.use((err, req, res, next) => {
-    res.status(err.status || 500).json({ message: 'Solicitud inválida' });
+    res.status(err.status || 500).json({ message: 'Solicitud invalida' });
 });
 
 app.listen(process.env.PORT || 3000, () => {
