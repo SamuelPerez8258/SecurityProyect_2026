@@ -1,10 +1,4 @@
-/**
- * registro.html: registro simple — usuario, correo y contraseña.
- * El teléfono y la dirección se rellenan en el perfil, no aquí; la cuenta nace como
- * `comprador` y el administrador la promociona cuando hace falta.
- * El usuario y el correo viajan crudos al backend (rúbrica §4: inyección SQL y XSS
- * almacenados tienen que ser reales, no escapar en el cliente).
- */
+
 import { api } from './api.js';
 import { guardarSesion, sesionAlmacenada } from './sesion.js';
 
@@ -95,8 +89,9 @@ document.getElementById('registroForm').addEventListener('submit', async ev => {
   try {
     guardarSesion(await api.registrarse({
       nombre: entradas.nombre.value.trim(),
-      email: entradas.correo.value.trim().toLowerCase(),
-      password: entradas.clave.value
+            email: entradas.correo.value.trim().toLowerCase(),
+      password: entradas.clave.value,
+      rol: document.querySelector('input[name="rol"]:checked')?.value || 'comprador'
     }));
     location.replace('index.html');
   } catch (err) {
@@ -105,3 +100,4 @@ document.getElementById('registroForm').addEventListener('submit', async ev => {
     boton.textContent = 'Crear cuenta';
   }
 });
+

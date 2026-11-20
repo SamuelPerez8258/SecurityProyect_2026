@@ -1,10 +1,6 @@
-/**
- * Shell visual de PokéVault: encabezado, menú lateral, pie y toast.
- * Es el mismo marcado que tenía el componente React (mismas clases y el mismo
- * orden de renglones), generado como cadena e inyectado con innerHTML, así que
- * ninguna hoja CSS tuvo que cambiarse.
- */
+
 import { limpiarSesion, marcarEntradaTienda, sesionAlmacenada, suscribirSesion, yaEntramosTienda } from './sesion.js';
+import { http, modo } from './http.js';
 import { carrito, suscribirCarrito } from './carrito.js';
 import { EMPRESA, telHref } from './empresa.js';
 
@@ -174,11 +170,9 @@ function montarInteracciones() {
     if (e.target.closest('a, button')) abrirDrawer(false);
   });
   const salir = document.getElementById('btn-salir');
-  if (salir) salir.addEventListener('click', () => {
+    if (salir) salir.addEventListener('click', async () => {
+    if (modo() === 'http') await http.cerrarSesion().catch(() => {});
     limpiarSesion();
-    /* en Next el logout no navega: te deja viendo la misma vista como invitado.
-       Aquí se recarga la página, así que se abre la ventana de invitado para que
-       blindarVista() no te devuelva al login en esa misma carga. */
     marcarEntradaTienda();
     location.reload();
   });
@@ -205,3 +199,4 @@ export function blindarVista() {
 }
 
 export { RUTA };
+

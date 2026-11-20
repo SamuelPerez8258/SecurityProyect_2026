@@ -6,12 +6,26 @@ const { requireAuth } = require('../middleware/auth');
 const { rateLimitLogin, MAX_INTENTOS } = require('../middleware/rateLimit');
 
 const BLOQUEO_MIN = 15;
-const GENERICO = { message: 'Usuario o contraseña incorrectos' };
+const GENERICO = { message: 'Usuario o contrasena incorrectos' };
+const ROLES_REGISTRO = ['comprador', 'vendedor'];
 
 let DUMMY_HASH;
 argon2.hash('dummy-password').then(hash => {
     DUMMY_HASH = hash;
 });
+
+function aUsuario(u) {
+    return {
+        id: String(u.id),
+        nombre: u.username,
+        email: u.email,
+        telefono: u.phone || '',
+        direccion: u.address || '',
+        rol: u.rol,
+        estado: u.is_active ? 'activo' : 'suspendido',
+        creado: u.created_at
+    };
+}
 
 
 const registroIpMap = new Map();
@@ -29,7 +43,7 @@ function rateLimitRegister(req, res, next) {
 
 
     if (registro.count > 5) {
-        return res.status(429).json({ message: 'Demasiados intentos de registro. Intente más tarde.' });
+        return res.status(429).json({ message: 'Demasiados intentos de registro. Intente mas tarde.' });
     }
 
     next();
@@ -38,26 +52,32 @@ function rateLimitRegister(req, res, next) {
 
 router.post('/register', rateLimitRegister, async (req, res) => {
     const { email, username, password } = req.body ?? {};
+    const rol = req.body?.rol ?? 'comprador';
 
-    
+
     if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string' ||
         email.trim() === '' || username.trim() === '' || password === ''
     ) {
-        return res.status(400).json({ error: "Todos los campos son obligatorios y deben ser texto válido." });
+        return res.status(400).json({ error: "Todos los campos son obligatorios y deben ser texto valido." });
     }
 
     if (email.length > 250 || !email.includes('@')) {
-        return res.status(400).json({ error: "El correo electrónico no es válido o excede el límite." });
+        return res.status(400).json({ error: "El correo electronico no es valido o excede el limite." });
     }
 
     const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
     if (!usernameRegex.test(username)) {
-        return res.status(400).json({ error: "El nombre de usuario debe tener entre 3 y 30 caracteres y solo puede contener letras, números y guiones bajos." });
+        return res.status(400).json({ error: "El nombre de usuario debe tener entre 3 y 30 caracteres y solo puede contener letras, numeros y guiones bajos." });
     }
 
-  
+
     if (password.length < 8 || password.length > 128) {
-        return res.status(400).json({ error: "La contraseña debe tener entre 8 y 128 caracteres." });
+        return res.status(400).json({ error: "La contrasena debe tener entre 8 y 128 caracteres." });
+    }
+
+    // En el registro publico nadie puede pedir ser administrador
+    if (!ROLES_REGISTRO.includes(rol)) {
+        return res.status(400).json({ error: "Rol no valido." });
     }
 
     try {
@@ -65,21 +85,21 @@ router.post('/register', rateLimitRegister, async (req, res) => {
         const passwordHash = await argon2.hash(password);
 
         const query = `
-            INSERT INTO users (email, username, password_hash, is_active, created_at)
-            VALUES ($1, $2, $3, true, NOW())
+            INSERT INTO users (email, username, password_hash, rol, is_active, created_at)
+            VALUES ($1, $2, $3, $4, true, NOW())
             RETURNING id;
         `;
 
-        const values = [emailNormalizado, username, passwordHash];
+        const values = [emailNormalizado, username, passwordHash, rol];
         await pool.query(query, values);
 
         return res.status(201).json({
-            mensaje: "¡Usuario registrado con éxito!"
+            mensaje: "Usuario registrado con exito"
         });
 
     } catch (error) {
         if (error.code === '23505') {
-            return res.status(400).json({ error: "El correo o el nombre de usuario ya están registrados." });
+            return res.status(400).json({ error: "El correo o el nombre de usuario ya estan registrados." });
         }
 
         console.error("Error en registro:", error.message);
@@ -99,7 +119,7 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
 
     try{
         const { rows } = await pool.query(
-            `SELECT id, username, password_hash, is_active, 
+            `SELECT id, username, email, password_hash, is_active, rol, phone, address, created_at,
             (locked_until IS NOT NULL AND locked_until > NOW())
             AS bloqueado FROM users WHERE email = $1`,
             [email.trim().toLowerCase()]
@@ -138,7 +158,7 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
             [user.id]
         )
 
-        const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ sub: user.id, rol: user.rol }, process.env.JWT_SECRET, { expiresIn: '1h' });
         res.cookie('token', token, {
             httpOnly: true,
             sameSite: 'strict',
@@ -146,24 +166,40 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
             maxAge: 60 * 60 * 1000,
         });
 
-        res.json({ message: 'Login exitoso', username: user.username });
+        res.json({ message: 'Login exitoso', username: user.username, usuario: aUsuario(user) });
 
     } catch (err){
         console.error(err.stack);
-        res.status(500).json({ message: 'Error interno del servidor' 
+        res.status(500).json({ message: 'Error interno del servidor'
 
-        })            
+        })
     }
 })
 
 
-router.get('/api/me', requireAuth, (req, res) => {    
-    res.json({ id: req.user.sub });
+router.get('/api/me', requireAuth, async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, username, email, is_active, rol, phone, address, created_at
+            FROM users WHERE id = $1`,
+            [req.user.sub]
+        );
+        const user = rows[0];
+
+        if (!user || !user.is_active) {
+            return res.status(401).json({ message: 'No autorizado' });
+        }
+
+        res.json({ id: user.id, usuario: aUsuario(user) });
+    } catch (err) {
+        console.error(err.stack);
+        res.status(500).json({ message: 'Error interno del servidor' });
+    }
 });
 
 router.post('/api/logout', (req, res) => {
     res.clearCookie('token');
-    res.json({ message: 'Sesión cerrada' });
+    res.json({ message: 'Sesion cerrada' });
 });
 
 module.exports = router;
