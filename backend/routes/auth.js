@@ -2,7 +2,6 @@ const router = require('express').Router();
 const argon2 = require('argon2');
 const pool = require('../db');
 const jwt = require('jsonwebtoken');
-const { requireAuth } = require('../middleware/auth');
 const { rateLimitLogin, MAX_INTENTOS } = require('../middleware/rateLimit');
 
 const BLOQUEO_MIN = 15;
@@ -35,6 +34,9 @@ function rateLimitRegister(req, res, next) {
     next();
 }
 
+function fallo(res, status, msg) {
+    return res.status(status).json({ error: msg, message: msg });
+}
 
 router.post('/register', rateLimitRegister, async (req, res) => {
     const { email, username, password } = req.body ?? {};
@@ -155,15 +157,5 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
         })            
     }
 })
-
-
-router.get('/api/me', requireAuth, (req, res) => {    
-    res.json({ id: req.user.sub });
-});
-
-router.post('/api/logout', (req, res) => {
-    res.clearCookie('token');
-    res.json({ message: 'Sesión cerrada' });
-});
 
 module.exports = router;

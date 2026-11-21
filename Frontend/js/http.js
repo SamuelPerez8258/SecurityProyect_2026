@@ -47,7 +47,7 @@ async function pedir(ruta, opciones = {}) {
 }
 const json = (body) => ({ method: 'POST', body: JSON.stringify(body) });
 export const http = {
-    iniciarSesion: (email, password) => pedir('/api/login', json({ email, password })).then(r => ({ usuario: { nombre: r.username, email: email.trim().toLowerCase(), rol: 'comprador' } })),
+    iniciarSesion: (email, password) => pedir('/api/login', json({ email, password })).then(r => ({ usuario: { nombre: r.username, email: email.trim().toLowerCase(), rol: r.rol || 'comprador' } })),
     registrarse: (d) => pedir('/register', json({ email: d.email, username: d.nombre, password: d.password })).then(() => http.iniciarSesion(d.email, d.password)),
     productos: () => pedir('/productos'),
     crearProducto: (b) => pedir('/productos', json(b)),

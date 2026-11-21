@@ -1,13 +1,5 @@
-/**
- * Configuración del frontend estático. Editar `Frontend/js/config.js` y recargar:
- * no hace falta compilación para cambiar de modo. `URL_BASE` vacío (o modo
- * `mock`) deja el sitio funcionando con datos locales en localStorage;
- * `modo: 'http'` manda todo al backend real del equipo del servidor.
- *
- * Este archivo es la fuente del `config.js` que lee el navegador: si se recompila
- * la capa de datos, los valores de abajo son los que se escriben.
- */
 export const CONFIG = {
-    URL_BASE: 'http://localhost:3000',
+    // Usa la misma IP con la que abriste el front, y el puerto del backend
+    URL_BASE: `http://${location.hostname}:3000`,
     modo: 'http'
 };
