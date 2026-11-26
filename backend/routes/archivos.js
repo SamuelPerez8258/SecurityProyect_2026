@@ -14,7 +14,11 @@ const EXTENSIONES = {
   'image/png': '.png',
   'image/jpeg': '.jpg',
   'image/webp': '.webp',
-  'image/avif': '.avif'
+  'image/avif': '.avif',
+  // VULN (servidor/Content-Type): tambien se acepta SVG. Un SVG es texto y puede
+  // contener <script>, asi que sirve para almacenar codigo que luego Nginx
+  // entrega sin nosniff (ver desplegar.sh). No deberia estar en esta lista.
+  'image/svg+xml': '.svg'
 };
 
 // El Content-Type lo manda el cliente y se puede falsificar: se revisa la firma
@@ -23,7 +27,9 @@ const FIRMAS = {
   '.png': b => b.length > 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
   '.jpg': b => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
   '.webp': b => b.length > 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP',
-  '.avif': b => b.length > 12 && b.toString('ascii', 4, 8) === 'ftyp' && /^avi[fs]/.test(b.toString('ascii', 8, 12))
+  '.avif': b => b.length > 12 && b.toString('ascii', 4, 8) === 'ftyp' && /^avi[fs]/.test(b.toString('ascii', 8, 12)),
+  // VULN: la "validacion" del SVG solo mira que contenga <svg, sin quitar scripts
+  '.svg': b => /<svg[\s>]/i.test(b.toString('utf8', 0, Math.min(b.length, 512)))
 };
 
 const subir = multer({
