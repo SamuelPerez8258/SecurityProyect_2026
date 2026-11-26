@@ -3,6 +3,7 @@
 const router = require('express').Router();
 const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const v = require('../lib/validar');
 
 const TODOS = ['comprador', 'vendedor', 'administrador'];
 const conSesion = [requireAuth, requireRole(...TODOS)];
@@ -24,8 +25,45 @@ const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const aFactura = r => ({ ...(r.data || {}), folio: r.invoice_number });
 
 async function porFolio(folio, client = pool) {
-  const { rows } = await client.query('SELECT * FROM invoices WHERE invoice_number = $1', [String(folio)]);
+  const f = v.folio(folio);
+  if (!f) return undefined;
+  const { rows } = await client.query('SELECT * FROM invoices WHERE invoice_number = $1', [f]);
   return rows[0];
+}
+
+// Puede ver la factura: el administrador, quien compro o quien vendio alguna pieza
+async function puedeVer(f, user) {
+  if (user.rol === 'administrador' || f.user_id === Number(user.sub)) return true;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM order_items oi JOIN productos p ON p.id = oi.producto_id
+     WHERE oi.order_id = $1 AND p.vendedor_id = $2 LIMIT 1`,
+    [f.order_id, user.sub]
+  );
+  return rows.length > 0;
+}
+
+const CONDICIONES = ['C', 'E', 'P'];
+
+// Datos fiscales del comprador: solo campos conocidos y sin HTML
+function limpiarComprador(c) {
+  const t = (x, n, o) => v.texto(x, n, o);
+  const rfc = t(c.rfc, 'El DUI', { max: 10 });
+  if (rfc && !/^\d{8}-\d$/.test(rfc)) throw new v.ErrorValidacion('El DUI lleva 9 digitos: 12345678-9.');
+  const cp = t(c.cp, 'El codigo postal', { max: 4 });
+  if (cp && !/^\d{4}$/.test(cp)) throw new v.ErrorValidacion('El codigo postal son 4 digitos.');
+  const condicion = CONDICIONES.includes(c.condicion) ? c.condicion : 'C';
+  return {
+    nombre: t(c.nombre, 'El nombre', { max: 120 }),
+    rfc,
+    email: c.email ? v.email(c.email) : '',
+    telefono: t(c.telefono, 'El telefono', { max: 20 }),
+    direccion: t(c.direccion, 'La direccion', { max: 200, contenido: true }),
+    ciudad: t(c.ciudad, 'El municipio', { max: 80 }),
+    departamento: t(c.departamento, 'El departamento', { max: 40 }),
+    cp,
+    condicion,
+    condicionLabel: t(c.condicionLabel, 'La condicion', { max: 120, contenido: true })
+  };
 }
 
 // GET /facturas  admin ve todas; los demas, sus compras y las ventas de sus productos
@@ -54,10 +92,9 @@ router.get('/facturas', ...conSesion, async (req, res) => {
 // GET /facturas/:folio
 router.get('/facturas/:folio', ...conSesion, async (req, res) => {
   try {
-    // VULN: IDOR (introducida a proposito por Samuel). No se verifica que la factura
-    // pertenezca al usuario autenticado y el folio es secuencial (PV-AAAA-0001, 0002...).
     const f = await porFolio(req.params.folio);
-    if (!f) return res.status(404).json({ message: 'Factura no encontrada.' });
+    // Misma respuesta si no existe o si no es tuya: no se revela que folios existen
+    if (!f || !(await puedeVer(f, req.user))) return res.status(404).json({ message: 'Factura no encontrada.' });
     res.json(aFactura(f));
   } catch (e) {
     console.error(e.message);
@@ -73,6 +110,20 @@ router.post('/facturas', ...conSesion, async (req, res) => {
     return res.status(400).json({ message: 'El carrito esta vacio.' });
   }
 
+  let c;
+  let pagoLimpio;
+  let codigo;
+  try {
+    c = limpiarComprador(comprador && typeof comprador === 'object' ? comprador : {});
+    pagoLimpio = pago && typeof pago === 'object'
+      ? { metodo: v.texto(pago.metodo, 'La forma de pago', { max: 60 }), tipo: v.texto(pago.tipo, 'El tipo de pago', { max: 30 }) }
+      : v.texto(pago, 'La forma de pago', { max: 60 });
+    codigo = String(promo || '').toUpperCase();
+    if (codigo && !/^[A-Z0-9]{1,20}$/.test(codigo)) codigo = '';
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -80,9 +131,9 @@ router.post('/facturas', ...conSesion, async (req, res) => {
     const detalle = [];
 
     for (const l of lineas) {
-      const pid = String(l.productoId ?? l.id ?? '');
-      const cant = parseInt(l.cantidad, 10);
-      if (!pid || !Number.isInteger(cant) || cant < 1) throw { http: 400, message: 'Linea invalida en el carrito.' };
+      const pid = v.idProducto(l && (l.productoId ?? l.id));
+      const cant = Number(l && l.cantidad);
+      if (!pid || !Number.isInteger(cant) || cant < 1 || cant > 99) throw { http: 400, message: 'Linea invalida en el carrito.' };
 
       const { rows } = await client.query(
         `SELECT * FROM productos WHERE id = $1 AND estado = 'publicado' FOR UPDATE`, [pid]
@@ -111,7 +162,6 @@ router.post('/facturas', ...conSesion, async (req, res) => {
       });
     }
 
-    const codigo = String(promo || '').toUpperCase();
     const pct = PROMOS[codigo] || 0;
     const sub = round2(subtotal);
     const disc = round2(sub * pct);
@@ -123,7 +173,6 @@ router.post('/facturas', ...conSesion, async (req, res) => {
     const u = (await client.query(
       'SELECT username, email, phone, address FROM users WHERE id = $1', [req.user.sub]
     )).rows[0];
-    const c = comprador && typeof comprador === 'object' ? comprador : {};
     const dir = c.direccion || u.address || '';
 
     const o = await client.query(
@@ -148,9 +197,7 @@ router.post('/facturas', ...conSesion, async (req, res) => {
       fecha: new Date().toISOString(),
       vence: new Date(Date.now() + PLAZO_HORAS * 3600 * 1000).toISOString(),
       estado: 'pendiente',
-      pago: pago && typeof pago === 'object'
-        ? { metodo: String(pago.metodo || ''), tipo: String(pago.tipo || '') }
-        : String(pago || ''),
+      pago: pagoLimpio,
       comprador: {
         ...c,
         id: String(req.user.sub),
@@ -202,14 +249,25 @@ router.post('/facturas/:folio/avisos', ...conSesion, async (req, res) => {
     }
 
     const b = req.body ?? {};
-    data.avisos = [...(data.avisos || []), {
-      banco: String(b.banco || ''),
-      referencia: String(b.referencia || ''),
-      fecha: String(b.fecha || ''),
-      monto: Number(b.monto) || 0,
-      depositante: String(b.depositante || ''),
-      hora: new Date().toISOString()
-    }];
+    let aviso;
+    try {
+      const fecha = v.texto(b.fecha, 'La fecha', { max: 10 });
+      if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new v.ErrorValidacion('La fecha no es valida.');
+      aviso = {
+        banco: v.texto(b.banco, 'El banco', { max: 60 }),
+        referencia: v.texto(b.referencia, 'La referencia', { max: 40 }),
+        fecha,
+        monto: b.monto === undefined || b.monto === '' ? 0 : v.numero(b.monto, 'El monto', { min: 0, max: 10000000 }),
+        depositante: v.texto(b.depositante, 'El depositante', { max: 120 }),
+        hora: new Date().toISOString()
+      };
+    } catch (e) {
+      return res.status(400).json({ message: e.message });
+    }
+    if ((data.avisos || []).length >= 10) {
+      return res.status(409).json({ message: 'Demasiados avisos para esta factura.' });
+    }
+    data.avisos = [...(data.avisos || []), aviso];
     data.estado = 'verificacion';
 
     await pool.query('UPDATE invoices SET data = $1::jsonb WHERE id = $2', [JSON.stringify(data), f.id]);

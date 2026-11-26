@@ -3,7 +3,8 @@ const argon2 = require('argon2');
 const pool = require('../db');
 const jwt = require('jsonwebtoken');
 const { requireAuth } = require('../middleware/auth');
-const { rateLimitLogin, MAX_INTENTOS } = require('../middleware/rateLimit');
+const v = require('../lib/validar');
+const { rateLimitLogin, falloLogin, loginCorrecto, MAX_INTENTOS } = require('../middleware/rateLimit');
 
 const BLOQUEO_MIN = 15;
 const GENERICO = { message: 'Usuario o contrasena incorrectos' };
@@ -55,24 +56,13 @@ router.post('/register', rateLimitRegister, async (req, res) => {
     const rol = req.body?.rol ?? 'comprador';
 
 
-    if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string' ||
-        email.trim() === '' || username.trim() === '' || password === ''
-    ) {
-        return res.status(400).json({ error: "Todos los campos son obligatorios y deben ser texto valido." });
-    }
-
-    if (email.length > 250 || !email.includes('@')) {
-        return res.status(400).json({ error: "El correo electronico no es valido o excede el limite." });
-    }
-
-    const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
-    if (!usernameRegex.test(username)) {
-        return res.status(400).json({ error: "El nombre de usuario debe tener entre 3 y 30 caracteres y solo puede contener letras, numeros y guiones bajos." });
-    }
-
-
-    if (password.length < 8 || password.length > 128) {
-        return res.status(400).json({ error: "La contrasena debe tener entre 8 y 128 caracteres." });
+    let emailNormalizado;
+    try {
+        emailNormalizado = v.email(email);
+        v.usuario(username);
+        v.password(password);
+    } catch (e) {
+        return res.status(400).json({ error: e.message });
     }
 
     // En el registro publico nadie puede pedir ser administrador
@@ -81,7 +71,6 @@ router.post('/register', rateLimitRegister, async (req, res) => {
     }
 
     try {
-        const emailNormalizado = email.trim().toLowerCase();
         const passwordHash = await argon2.hash(password);
 
         const query = `
@@ -149,6 +138,7 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
                 )
             }
 
+            falloLogin(req.ip);
             return res.status(401).json(GENERICO)
 
         }
@@ -158,6 +148,7 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
             [user.id]
         )
 
+        loginCorrecto(req.ip);
         const token = jwt.sign({ sub: user.id, rol: user.rol }, process.env.JWT_SECRET, { expiresIn: '1h' });
         res.cookie('token', token, {
             httpOnly: true,

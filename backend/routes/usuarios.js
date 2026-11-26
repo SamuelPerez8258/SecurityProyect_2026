@@ -4,6 +4,7 @@ const router = require('express').Router();
 const argon2 = require('argon2');
 const pool = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const v = require('../lib/validar');
 
 const ROLES = ['comprador', 'vendedor', 'administrador'];
 const soloAdmin = [requireAuth, requireRole('administrador')];
@@ -37,26 +38,29 @@ router.get('/usuarios', ...soloAdmin, async (req, res) => {
 router.post('/usuarios', ...soloAdmin, async (req, res) => {
   const { nombre, email, password, rol = 'comprador', telefono = '', direccion = '' } = req.body ?? {};
 
-  if (typeof nombre !== 'string' || !/^[a-zA-Z0-9_]{3,30}$/.test(nombre)) {
-    return res.status(400).json({ message: 'El usuario debe tener de 3 a 30 letras, numeros o guion bajo, sin espacios.' });
-  }
-  if (typeof email !== 'string' || !email.includes('@') || email.length > 250) {
-    return res.status(400).json({ message: 'El correo no es valido.' });
-  }
-  if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
-    return res.status(400).json({ message: 'La contrasena debe tener al menos 6 caracteres.' });
+  let datos;
+  try {
+    datos = {
+      nombre: v.usuario(nombre),
+      email: v.email(email),
+      password: v.password(password),
+      telefono: v.texto(telefono, 'El telefono', { max: 20 }),
+      direccion: v.texto(direccion, 'La direccion', { max: 200, contenido: true })
+    };
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
   }
   if (!ROLES.includes(rol)) {
     return res.status(400).json({ message: 'Rol no valido.' });
   }
 
   try {
-    const hash = await argon2.hash(password);
+    const hash = await argon2.hash(datos.password);
     const { rows } = await pool.query(
       `INSERT INTO users (email, username, password_hash, rol, phone, address, is_active, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
        RETURNING id, username, email, phone, address, rol, is_active, created_at`,
-      [email.trim().toLowerCase(), nombre, hash, rol, String(telefono), String(direccion)]
+      [datos.email, datos.nombre, hash, rol, datos.telefono, datos.direccion]
     );
     res.status(201).json(aUsuario(rows[0]));
   } catch (e) {
@@ -68,17 +72,27 @@ router.post('/usuarios', ...soloAdmin, async (req, res) => {
 
 // PUT /usuarios/:id  solo administrador. Cambia rol, estado (activo/suspendido) o datos.
 router.put('/usuarios/:id', ...soloAdmin, async (req, res) => {
-  const id = parseInt(req.params.id, 10) || 0;
+  const id = v.idNum(req.params.id);
+  if (!id) return res.status(404).json({ message: 'Usuario no encontrado.' });
   const b = req.body ?? {};
+  let c;
+  try {
+    c = {
+      nombre: b.nombre === undefined ? null : v.usuario(b.nombre),
+      email: b.email === undefined ? null : v.email(b.email),
+      telefono: b.telefono === undefined ? null : v.texto(b.telefono, 'El telefono', { max: 20 }),
+      direccion: b.direccion === undefined ? null : v.texto(b.direccion, 'La direccion', { max: 200, contenido: true }),
+      password: b.password === undefined ? null : v.password(b.password)
+    };
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
+  }
 
   if (b.rol !== undefined && !ROLES.includes(b.rol)) {
     return res.status(400).json({ message: 'Rol no valido.' });
   }
   if (b.estado !== undefined && !['activo', 'suspendido'].includes(b.estado)) {
     return res.status(400).json({ message: 'Estado no valido.' });
-  }
-  if (b.password !== undefined && (typeof b.password !== 'string' || b.password.length < 6)) {
-    return res.status(400).json({ message: 'La contrasena debe tener al menos 6 caracteres.' });
   }
   // Un admin no puede quitarse el rol ni suspenderse a si mismo y quedar sin acceso
   if (id === Number(req.user.sub) && ((b.rol && b.rol !== 'administrador') || b.estado === 'suspendido')) {
@@ -97,13 +111,12 @@ router.put('/usuarios/:id', ...soloAdmin, async (req, res) => {
          is_active = COALESCE($6, is_active)
        WHERE id = $7
        RETURNING id, username, email, phone, address, rol, is_active, created_at`,
-      [b.nombre ?? null, b.email ? String(b.email).trim().toLowerCase() : null, b.telefono ?? null,
-       b.direccion ?? null, b.rol ?? null, activo, id]
+      [c.nombre, c.email, c.telefono, c.direccion, b.rol ?? null, activo, id]
     );
     if (!rows.length) return res.status(404).json({ message: 'Usuario no encontrado.' });
 
-    if (b.password) {
-      await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [await argon2.hash(b.password), id]);
+    if (c.password) {
+      await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [await argon2.hash(c.password), id]);
     }
     res.json(aUsuario(rows[0]));
   } catch (e) {
@@ -115,7 +128,8 @@ router.put('/usuarios/:id', ...soloAdmin, async (req, res) => {
 
 // DELETE /usuarios/:id  solo administrador. No se puede borrar a si mismo.
 router.delete('/usuarios/:id', ...soloAdmin, async (req, res) => {
-  const id = parseInt(req.params.id, 10) || 0;
+  const id = v.idNum(req.params.id);
+  if (!id) return res.status(404).json({ message: 'Usuario no encontrado.' });
   if (id === Number(req.user.sub)) {
     return res.status(400).json({ message: 'No puedes eliminar tu propia cuenta.' });
   }

@@ -3,6 +3,7 @@
 # Probado para Ubuntu/Debian (apt) y CentOS Stream/Rocky/Alma (dnf)
 # Uso: sudo bash desplegar.sh
 # Para borrar la BD y cargarla de nuevo: sudo RESET_DB=1 bash desplegar.sh
+# Para no tocar el firewall o SSH: sudo FIREWALL=0 HARDEN_SSH=0 bash desplegar.sh
 set -euo pipefail
 
 REPO_URL="https://github.com/SamuelPerez8258/SecurityProyect_2026.git"
@@ -15,10 +16,11 @@ APP_USER="pokevault"
 
 DB_NAME="pokevault"
 DB_USER="pokevault"
-DB_PASSWORD="PokeVault2026"
 PUERTO_BACKEND=3000
 
 RESET_DB="${RESET_DB:-0}"
+FIREWALL="${FIREWALL:-1}"
+HARDEN_SSH="${HARDEN_SSH:-1}"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Corre el script con sudo"
@@ -46,7 +48,7 @@ echo "[1/9] Paquetes del sistema"
 if [[ "$DISTRO" == "debian" ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
-  apt-get install -y git curl ca-certificates gnupg openssl nginx postgresql postgresql-contrib build-essential python3
+  apt-get install -y git curl ca-certificates gnupg openssl nginx postgresql postgresql-contrib build-essential python3 ufw
 else
   dnf install -y git curl ca-certificates openssl nginx postgresql-server postgresql-contrib policycoreutils-python-utils gcc-c++ make python3
 fi
@@ -96,6 +98,12 @@ if grep -Eq '^host[[:space:]].*[[:space:]](ident|peer)[[:space:]]*$' "$HBA_FILE"
   echo "    pg_hba.conf: conexiones host con password (scram-sha-256)"
 fi
 
+# Contrasena de la BD: aleatoria la primera vez y se conserva en backend/.env
+DB_PASSWORD="$(grep -s '^DB_PASSWORD=' "$APP_DIR/$BACKEND_DIR/.env" | cut -d= -f2- || true)"
+if [[ ${#DB_PASSWORD} -lt 24 ]]; then
+  DB_PASSWORD="$(openssl rand -hex 24)"
+fi
+
 if [[ "$RESET_DB" == "1" ]]; then
   echo "    RESET_DB=1: borrando base $DB_NAME"
   sudo -u postgres psql -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $DB_NAME;"
@@ -106,9 +114,9 @@ sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER') THEN
-    CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
+    CREATE ROLE $DB_USER LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '$DB_PASSWORD';
   ELSE
-    ALTER ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';
+    ALTER ROLE $DB_USER WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '$DB_PASSWORD';
   END IF;
 END
 \$\$;
@@ -120,7 +128,7 @@ PG_PORT="$(sudo -u postgres psql -tAc 'SHOW port' | tr -d '[:space:]')"
 echo "    PostgreSQL escucha en el puerto $PG_PORT"
 
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1; then
-  sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
+  sudo -u postgres createdb "$DB_NAME"
 fi
 
 # Busca un .sql en la rama actual; si no esta, lo saca de otras ramas del remoto
@@ -170,12 +178,19 @@ else
 fi
 
 sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" <<SQL
-GRANT ALL ON SCHEMA public TO $DB_USER;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO $DB_USER;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+-- Minimo privilegio: el usuario de la app solo lee y escribe datos.
+-- No es dueno de la BD ni del esquema: no puede crear, alterar ni borrar tablas.
+ALTER DATABASE $DB_NAME OWNER TO postgres;
+REVOKE ALL ON DATABASE $DB_NAME FROM PUBLIC;
+GRANT CONNECT ON DATABASE $DB_NAME TO $DB_USER;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM $DB_USER;
+GRANT USAGE ON SCHEMA public TO $DB_USER;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM $DB_USER;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO $DB_USER;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM $DB_USER;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO $DB_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
 SQL
 
 echo "[6/9] Backend (.env y dependencias)"
@@ -186,6 +201,7 @@ if [[ ${#JWT_SECRET} -lt 32 ]]; then
 fi
 cat > .env <<ENV
 PORT=$PUERTO_BACKEND
+HOST=127.0.0.1
 DB_HOST=127.0.0.1
 DB_PORT=$PG_PORT
 DB_USER=$DB_USER
@@ -217,6 +233,10 @@ fi
 # Carpeta de fotos que sube el backend (POST /archivos) y sirve Nginx
 mkdir -p "$APP_DIR/$FRONTEND_DIR/uploads"
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+# Nginx solo necesita leer el frontend; el backend, el .env y el .git quedan cerrados
+chmod 755 "$APP_DIR" "$APP_DIR/$FRONTEND_DIR" "$APP_DIR/$FRONTEND_DIR/uploads"
+chmod 750 "$APP_DIR/$BACKEND_DIR"
+if [[ -d "$APP_DIR/.git" ]]; then chmod 750 "$APP_DIR/.git"; fi
 chmod 600 "$APP_DIR/$BACKEND_DIR/.env"
 
 echo "[8/9] Servicio systemd del backend"
@@ -234,6 +254,17 @@ EnvironmentFile=$APP_DIR/$BACKEND_DIR/.env
 ExecStart=$NODE_BIN $ENTRY
 Restart=on-failure
 RestartSec=3
+# Aislamiento: si alguien lograra ejecutar codigo en el backend, no puede
+# escalar privilegios ni escribir fuera de la carpeta de fotos
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
 
 [Install]
 WantedBy=multi-user.target
@@ -250,27 +281,109 @@ else
   # El server por defecto de nginx.conf no debe competir con el nuestro
   sed -i 's/ default_server;/;/' /etc/nginx/nginx.conf
 fi
+# Escuchar en IPv6 solo si el sistema lo tiene (si no, nginx no arranca)
+LISTEN_V6=""
+if [[ -f /proc/net/if_inet6 ]]; then
+  LISTEN_V6="listen [::]:80 default_server;"
+fi
+
+# Cabeceras de seguridad comunes (se incluyen en cada bloque que agrega cabeceras)
+cat > /etc/nginx/pokevault-headers.conf <<'HEADERS'
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "same-origin" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+add_header Cross-Origin-Opener-Policy "same-origin" always;
+HEADERS
+
+cat > /etc/nginx/pokevault-proxy.conf <<PROXY
+proxy_pass http://127.0.0.1:$PUERTO_BACKEND;
+proxy_http_version 1.1;
+proxy_set_header Host \$host;
+proxy_set_header X-Real-IP \$remote_addr;
+# Se reemplaza (no se agrega) para que nadie falsifique su IP
+proxy_set_header X-Forwarded-For \$remote_addr;
+proxy_set_header X-Forwarded-Proto \$scheme;
+proxy_hide_header X-Powered-By;
+proxy_hide_header X-Content-Type-Options;
+PROXY
+
 cat > "$NGINX_CONF" <<NGINX
+# Limites de peticiones por IP (login, registro y subidas; resto de la API)
+limit_req_zone \$binary_remote_addr zone=pv_auth:10m rate=10r/m;
+limit_req_zone \$binary_remote_addr zone=pv_api:10m rate=20r/s;
+limit_req_status 429;
+
 server {
     listen 80 default_server;
-    listen [::]:80 default_server;
+    $LISTEN_V6
     server_name _;
 
+    server_tokens off;
+    autoindex off;
     root $APP_DIR/$FRONTEND_DIR;
     index index.html;
-    client_max_body_size 10m;
+    client_max_body_size 8m;
+    client_body_timeout 15s;
+    client_header_timeout 15s;
+    keepalive_timeout 15s;
+    send_timeout 15s;
+
+    include /etc/nginx/pokevault-headers.conf;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://images.pokemontcg.io; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+
+    if (\$request_method !~ ^(GET|HEAD|POST|PUT|DELETE)\$) {
+        return 405;
+    }
+
+    # Fotos subidas: solo imagenes con nombre generado por el backend
+    location ~ "^/uploads/[a-f0-9]{24}\.(png|jpg|webp|avif)\$" {
+        include /etc/nginx/pokevault-headers.conf;
+        add_header Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox" always;
+        types {
+            image/png png;
+            image/jpeg jpg;
+            image/webp webp;
+            image/avif avif;
+        }
+        default_type application/octet-stream;
+        try_files \$uri =404;
+    }
+    location /uploads/ {
+        return 404;
+    }
+
+    # Archivos ocultos y de desarrollo que no deben verse desde el navegador
+    location ~ /\. {
+        return 404;
+    }
+    location ^~ /src/ {
+        return 404;
+    }
+    location ~* \.(ts|mjs|json|md|map|sh|sql|env|bak|old|orig|log|lock|ya?ml|txt|tsbuildinfo)\$ {
+        return 404;
+    }
+
+    location = /api/login {
+        limit_req zone=pv_auth burst=5 nodelay;
+        include /etc/nginx/pokevault-proxy.conf;
+    }
+    location = /register {
+        limit_req zone=pv_auth burst=5 nodelay;
+        include /etc/nginx/pokevault-proxy.conf;
+    }
+    location = /archivos {
+        limit_req zone=pv_auth burst=10 nodelay;
+        include /etc/nginx/pokevault-proxy.conf;
+    }
 
     location / {
         try_files \$uri \$uri/ @backend;
     }
 
     location @backend {
-        proxy_pass http://127.0.0.1:$PUERTO_BACKEND;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        limit_req zone=pv_api burst=40 nodelay;
+        include /etc/nginx/pokevault-proxy.conf;
     }
 }
 NGINX
@@ -292,9 +405,41 @@ if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewa
   firewall-cmd --reload
   echo "    firewalld: http abierto"
 fi
-if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+SSH_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}' || true)"
+SSH_PORT="${SSH_PORT:-22}"
+if [[ "$FIREWALL" == "1" ]] && command -v ufw >/dev/null 2>&1; then
+  # Solo quedan abiertos SSH (con limite de intentos) y HTTP
+  ufw default deny incoming >/dev/null
+  ufw default allow outgoing >/dev/null
+  ufw limit "$SSH_PORT/tcp" >/dev/null
+  ufw allow 80/tcp >/dev/null
+  ufw --force enable >/dev/null
+  echo "    ufw: activo, abiertos $SSH_PORT/tcp (limitado) y 80/tcp"
+elif command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow 80/tcp
   echo "    ufw: 80/tcp abierto"
+fi
+
+# SSH: opciones del laboratorio de hardening que no dejan fuera a nadie
+if [[ "$HARDEN_SSH" == "1" ]] && command -v sshd >/dev/null 2>&1 && [[ -d /etc/ssh/sshd_config.d ]]; then
+  SSH_DROPIN=/etc/ssh/sshd_config.d/10-pokevault.conf
+  {
+    echo "MaxAuthTries 3"
+    echo "LoginGraceTime 20"
+    echo "PermitEmptyPasswords no"
+    echo "X11Forwarding no"
+    echo "PermitTunnel no"
+    echo "PermitUserEnvironment no"
+    if [[ "$DISTRO" == "debian" ]]; then echo "DebianBanner no"; fi
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER:-}" != "root" ]]; then echo "PermitRootLogin no"; fi
+  } > "$SSH_DROPIN"
+  if sshd -t 2>/dev/null; then
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+    echo "    ssh: endurecido ($SSH_DROPIN)"
+  else
+    rm -f "$SSH_DROPIN"
+    echo "    ssh: no se aplico el endurecimiento (sshd -t fallo)"
+  fi
 fi
 
 nginx -t
@@ -315,4 +460,6 @@ echo "Usuarios de prueba:"
 echo "    admin@pokevault.local     / Admin12345    (administrador)"
 echo "    vendedor@pokevault.local  / Vendedor123   (vendedor)"
 echo "    comprador@pokevault.local / Comprador123  (comprador)"
+echo "Puertos escuchando:"
+ss -tlnp 2>/dev/null | awk 'NR>1{print "    "$4}' | sort -u
 echo "Logs del backend: sudo journalctl -u pokevault -f"
