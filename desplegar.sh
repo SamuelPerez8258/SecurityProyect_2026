@@ -114,6 +114,11 @@ END
 \$\$;
 SQL
 
+# El puerto real del cluster: si el 5432 ya estaba ocupado (por ejemplo por Docker)
+# Ubuntu crea el cluster en 5433
+PG_PORT="$(sudo -u postgres psql -tAc 'SHOW port' | tr -d '[:space:]')"
+echo "    PostgreSQL escucha en el puerto $PG_PORT"
+
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1; then
   sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
 fi
@@ -142,7 +147,7 @@ obtener_sql() {
 }
 
 if [[ ! -f "$APP_DIR/.db_inicializada" ]]; then
-  for archivo in schema.sql alter.sql functions.sql inserts.sql productos.sql semilla_productos.sql roles.sql usuarios_prueba.sql; do
+  for archivo in schema.sql alter.sql functions.sql inserts.sql productos.sql semilla_productos.sql roles.sql usuarios_prueba.sql facturas.sql; do
     ruta_sql="$(obtener_sql "$archivo" feature/database feature/Productos)"
     if [[ -z "$ruta_sql" ]]; then
       echo "    AVISO: no se encontro $archivo en ninguna rama, se omite"
@@ -151,7 +156,20 @@ if [[ ! -f "$APP_DIR/.db_inicializada" ]]; then
     echo "    Cargando $archivo"
     sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" < "$ruta_sql"
   done
-  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" <<SQL
+  touch "$APP_DIR/.db_inicializada"
+else
+  echo "    BD ya inicializada (usa RESET_DB=1 para recargarla)"
+  # Migraciones que se pueden repetir: se aplican tambien sobre una BD que ya existe
+  for archivo in roles.sql facturas.sql; do
+    ruta_sql="$(obtener_sql "$archivo" feature/database feature/Productos)"
+    if [[ -n "$ruta_sql" ]]; then
+      echo "    Aplicando $archivo"
+      sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" < "$ruta_sql"
+    fi
+  done
+fi
+
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" <<SQL
 GRANT ALL ON SCHEMA public TO $DB_USER;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO $DB_USER;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
@@ -159,10 +177,6 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO $DB_USER;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
 SQL
-  touch "$APP_DIR/.db_inicializada"
-else
-  echo "    BD ya inicializada (usa RESET_DB=1 para recargarla)"
-fi
 
 echo "[6/9] Backend (.env y dependencias)"
 cd "$APP_DIR/$BACKEND_DIR"
@@ -173,7 +187,7 @@ fi
 cat > .env <<ENV
 PORT=$PUERTO_BACKEND
 DB_HOST=127.0.0.1
-DB_PORT=5432
+DB_PORT=$PG_PORT
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 DB_NAME=$DB_NAME
