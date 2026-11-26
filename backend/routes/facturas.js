@@ -88,8 +88,10 @@ router.get('/facturas', ...conSesion, async (req, res) => {
 router.get('/facturas/:folio', ...conSesion, async (req, res) => {
   try {
     const f = await porFolio(req.params.folio);
-    // Misma respuesta si no existe o si no es tuya: no se revela que folios existen
-    if (!f || !puedeVer(f, req.user)) return res.status(404).json({ message: 'Factura no encontrada.' });
+    if (!f) return res.status(404).json({ message: 'Factura no encontrada.' });
+    // VULN IDOR (control de acceso roto): cualquier usuario con sesion puede leer
+    // cualquier factura cambiando el folio, que es secuencial (PV-AAAA-0001, 0002...).
+    // No se verifica que la factura sea suya. Falta aqui: if (!puedeVer(f, req.user)) return 404.
     res.json(aFactura(f));
   } catch (e) {
     console.error(e.message);

@@ -155,7 +155,7 @@ obtener_sql() {
 }
 
 if [[ ! -f "$APP_DIR/.db_inicializada" ]]; then
-  for archivo in schema.sql alter.sql functions.sql inserts.sql productos.sql semilla_productos.sql roles.sql usuarios_prueba.sql facturas.sql seguridad.sql; do
+  for archivo in schema.sql alter.sql functions.sql inserts.sql productos.sql semilla_productos.sql roles.sql usuarios_prueba.sql facturas.sql seguridad.sql vuln_idor.sql; do
     ruta_sql="$(obtener_sql "$archivo" feature/database feature/Productos)"
     if [[ -z "$ruta_sql" ]]; then
       echo "    AVISO: no se encontro $archivo en ninguna rama, se omite"
@@ -337,14 +337,20 @@ server {
     }
 
     # Fotos subidas: solo imagenes con nombre generado por el backend
-    location ~ "^/uploads/[a-f0-9]{24}\.(png|jpg|webp|avif)\$" {
-        include /etc/nginx/pokevault-headers.conf;
-        add_header Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox" always;
+    location ~ "^/uploads/[a-f0-9]{24}\.(png|jpg|webp|avif|svg)\$" {
+        # VULN SERVIDOR (Content-Type mal configurado / sin nosniff):
+        # al declarar un add_header propio aqui (el de cache), nginx deja de
+        # heredar las cabeceras de seguridad del server (nosniff, CSP, etc.).
+        # El contenido subido por usuarios termina servido sin nosniff y sin CSP,
+        # y un .svg con <script> se ejecuta como documento en el navegador.
+        # Lo correcto seria incluir pokevault-headers.conf y la CSP con sandbox.
+        add_header Cache-Control "public, max-age=300";
         types {
             image/png png;
             image/jpeg jpg;
             image/webp webp;
             image/avif avif;
+            image/svg+xml svg;
         }
         default_type application/octet-stream;
         try_files \$uri =404;
