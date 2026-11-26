@@ -155,7 +155,7 @@ obtener_sql() {
 }
 
 if [[ ! -f "$APP_DIR/.db_inicializada" ]]; then
-  for archivo in schema.sql alter.sql functions.sql inserts.sql productos.sql semilla_productos.sql roles.sql usuarios_prueba.sql facturas.sql; do
+  for archivo in schema.sql alter.sql functions.sql inserts.sql productos.sql semilla_productos.sql roles.sql usuarios_prueba.sql facturas.sql seguridad.sql; do
     ruta_sql="$(obtener_sql "$archivo" feature/database feature/Productos)"
     if [[ -z "$ruta_sql" ]]; then
       echo "    AVISO: no se encontro $archivo en ninguna rama, se omite"
@@ -168,7 +168,7 @@ if [[ ! -f "$APP_DIR/.db_inicializada" ]]; then
 else
   echo "    BD ya inicializada (usa RESET_DB=1 para recargarla)"
   # Migraciones que se pueden repetir: se aplican tambien sobre una BD que ya existe
-  for archivo in roles.sql facturas.sql; do
+  for archivo in roles.sql facturas.sql seguridad.sql; do
     ruta_sql="$(obtener_sql "$archivo" feature/database feature/Productos)"
     if [[ -n "$ruta_sql" ]]; then
       echo "    Aplicando $archivo"
@@ -364,15 +364,13 @@ server {
         return 404;
     }
 
-    location = /api/login {
+    # Express no distingue mayusculas ni la barra final: el limite tambien
+    # aplica a /API/LOGIN, /api/login/, /Register/, etc.
+    location ~* ^/+(api/+login|register)/*\$ {
         limit_req zone=pv_auth burst=5 nodelay;
         include /etc/nginx/pokevault-proxy.conf;
     }
-    location = /register {
-        limit_req zone=pv_auth burst=5 nodelay;
-        include /etc/nginx/pokevault-proxy.conf;
-    }
-    location = /archivos {
+    location ~* ^/+archivos/*\$ {
         limit_req zone=pv_auth burst=10 nodelay;
         include /etc/nginx/pokevault-proxy.conf;
     }

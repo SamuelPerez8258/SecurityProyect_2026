@@ -5,6 +5,21 @@ function leerToken(req) {
     return jwt.verify(req.cookies.token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
 }
 
+// Usuario activo cuyo token sigue vigente. Un token emitido antes de
+// tokens_validos_desde (logout, cambio de contrasena, suspension) ya no sirve.
+async function usuarioDelToken(t) {
+    const { rows } = await pool.query(
+        'SELECT rol, is_active, tokens_validos_desde FROM users WHERE id = $1',
+        [t.sub]
+    );
+    const u = rows[0];
+    if (!u || !u.is_active) return null;
+    // ims: momento de emision en milisegundos (iat solo tiene precision de segundos)
+    const emitido = Number.isFinite(t.ims) ? t.ims : t.iat * 1000;
+    if (u.tokens_validos_desde && emitido < u.tokens_validos_desde.getTime()) return null;
+    return u;
+}
+
 function requireAuth(req, res, next) {
     try {
         req.user = leerToken(req);
@@ -14,19 +29,14 @@ function requireAuth(req, res, next) {
     }
 }
 
-async function cargarUsuario(id) {
-    const { rows } = await pool.query('SELECT rol, is_active FROM users WHERE id = $1', [id]);
-    return rows[0];
-}
-
 // Va despues de requireAuth. Lee el rol desde la BD en cada peticion para que
-// un cambio de rol o una suspension aplique de inmediato, sin esperar a que
-// expire el token. Sin argumentos solo carga req.user.rol.
+// un cambio de rol, una suspension o un logout aplique de inmediato.
+// Sin argumentos solo carga req.user.rol.
 function requireRole(...roles) {
     return async (req, res, next) => {
         try {
-            const u = await cargarUsuario(req.user.sub);
-            if (!u || !u.is_active) {
+            const u = await usuarioDelToken(req.user);
+            if (!u) {
                 return res.status(401).json({ message: 'No autorizado' });
             }
             req.user.rol = u.rol;
@@ -45,12 +55,12 @@ function requireRole(...roles) {
 async function sesionOpcional(req, res, next) {
     try {
         const t = leerToken(req);
-        const u = await cargarUsuario(t.sub);
-        if (u && u.is_active) req.user = { sub: t.sub, rol: u.rol };
+        const u = await usuarioDelToken(t);
+        if (u) req.user = { sub: t.sub, rol: u.rol };
     } catch {
         req.user = undefined;
     }
     next();
 }
 
-module.exports = { requireAuth, requireRole, sesionOpcional };
+module.exports = { requireAuth, requireRole, sesionOpcional, leerToken, usuarioDelToken };

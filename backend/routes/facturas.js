@@ -24,22 +24,21 @@ const TRANSICIONES = {
 const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const aFactura = r => ({ ...(r.data || {}), folio: r.invoice_number });
 
-async function porFolio(folio, client = pool) {
+// bloquear = true: SELECT ... FOR UPDATE dentro de una transaccion, para que dos
+// peticiones al mismo tiempo no pisen el estado de la factura (condicion de carrera)
+async function porFolio(folio, client = pool, bloquear = false) {
   const f = v.folio(folio);
   if (!f) return undefined;
-  const { rows } = await client.query('SELECT * FROM invoices WHERE invoice_number = $1', [f]);
+  const { rows } = await client.query(
+    `SELECT * FROM invoices WHERE invoice_number = $1${bloquear ? ' FOR UPDATE' : ''}`, [f]
+  );
   return rows[0];
 }
 
-// Puede ver la factura: el administrador, quien compro o quien vendio alguna pieza
-async function puedeVer(f, user) {
-  if (user.rol === 'administrador' || f.user_id === Number(user.sub)) return true;
-  const { rows } = await pool.query(
-    `SELECT 1 FROM order_items oi JOIN productos p ON p.id = oi.producto_id
-     WHERE oi.order_id = $1 AND p.vendedor_id = $2 LIMIT 1`,
-    [f.order_id, user.sub]
-  );
-  return rows.length > 0;
+// La factura (con DUI, direccion y correo del comprador) solo la ven quien compro
+// y el administrador
+function puedeVer(f, user) {
+  return user.rol === 'administrador' || f.user_id === Number(user.sub);
 }
 
 const CONDICIONES = ['C', 'E', 'P'];
@@ -74,11 +73,7 @@ router.get('/facturas', ...conSesion, async (req, res) => {
       ({ rows } = await pool.query('SELECT * FROM invoices ORDER BY id DESC'));
     } else {
       ({ rows } = await pool.query(
-        `SELECT i.* FROM invoices i
-         WHERE i.user_id = $1
-            OR EXISTS (SELECT 1 FROM order_items oi JOIN productos p ON p.id = oi.producto_id
-                       WHERE oi.order_id = i.order_id AND p.vendedor_id = $1)
-         ORDER BY i.id DESC`,
+        'SELECT * FROM invoices WHERE user_id = $1 ORDER BY id DESC',
         [req.user.sub]
       ));
     }
@@ -94,7 +89,7 @@ router.get('/facturas/:folio', ...conSesion, async (req, res) => {
   try {
     const f = await porFolio(req.params.folio);
     // Misma respuesta si no existe o si no es tuya: no se revela que folios existen
-    if (!f || !(await puedeVer(f, req.user))) return res.status(404).json({ message: 'Factura no encontrada.' });
+    if (!f || !puedeVer(f, req.user)) return res.status(404).json({ message: 'Factura no encontrada.' });
     res.json(aFactura(f));
   } catch (e) {
     console.error(e.message);
@@ -236,46 +231,54 @@ router.post('/facturas', ...conSesion, async (req, res) => {
 
 // POST /facturas/:folio/avisos  el comprador avisa que ya transfirio: pasa a "verificacion"
 router.post('/facturas/:folio/avisos', ...conSesion, async (req, res) => {
+  const b = req.body ?? {};
+  let aviso;
   try {
-    const f = await porFolio(req.params.folio);
-    if (!f) return res.status(404).json({ message: 'Factura no encontrada.' });
-    if (req.user.rol !== 'administrador' && f.user_id !== Number(req.user.sub)) {
-      return res.status(403).json({ message: 'No es tu factura.' });
+    const fecha = v.texto(b.fecha, 'La fecha', { max: 10 });
+    if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new v.ErrorValidacion('La fecha no es valida.');
+    aviso = {
+      banco: v.texto(b.banco, 'El banco', { max: 60 }),
+      referencia: v.texto(b.referencia, 'La referencia', { max: 40 }),
+      fecha,
+      monto: b.monto === undefined || b.monto === '' ? 0 : v.numero(b.monto, 'El monto', { min: 0, max: 10000000 }),
+      depositante: v.texto(b.depositante, 'El depositante', { max: 120 }),
+      hora: new Date().toISOString()
+    };
+  } catch (e) {
+    return res.status(400).json({ message: e.message });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const f = await porFolio(req.params.folio, client, true);
+    if (!f || !puedeVer(f, req.user)) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Factura no encontrada.' });
     }
 
     const data = f.data || {};
     if (!(TRANSICIONES[data.estado] || []).includes('verificacion')) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ message: 'Esta factura no puede pasar a verificacion.' });
     }
-
-    const b = req.body ?? {};
-    let aviso;
-    try {
-      const fecha = v.texto(b.fecha, 'La fecha', { max: 10 });
-      if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new v.ErrorValidacion('La fecha no es valida.');
-      aviso = {
-        banco: v.texto(b.banco, 'El banco', { max: 60 }),
-        referencia: v.texto(b.referencia, 'La referencia', { max: 40 }),
-        fecha,
-        monto: b.monto === undefined || b.monto === '' ? 0 : v.numero(b.monto, 'El monto', { min: 0, max: 10000000 }),
-        depositante: v.texto(b.depositante, 'El depositante', { max: 120 }),
-        hora: new Date().toISOString()
-      };
-    } catch (e) {
-      return res.status(400).json({ message: e.message });
-    }
     if ((data.avisos || []).length >= 10) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ message: 'Demasiados avisos para esta factura.' });
     }
+
     data.avisos = [...(data.avisos || []), aviso];
     data.estado = 'verificacion';
-
-    await pool.query('UPDATE invoices SET data = $1::jsonb WHERE id = $2', [JSON.stringify(data), f.id]);
-    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', ['verificacion', f.order_id]);
+    await client.query('UPDATE invoices SET data = $1::jsonb WHERE id = $2', [JSON.stringify(data), f.id]);
+    await client.query('UPDATE orders SET status = $1 WHERE id = $2', ['verificacion', f.order_id]);
+    await client.query('COMMIT');
     res.json(aFactura({ ...f, data }));
   } catch (e) {
+    await client.query('ROLLBACK');
     console.error(e.message);
     res.status(500).json({ message: 'Error interno del servidor.' });
+  } finally {
+    client.release();
   }
 });
 
@@ -290,8 +293,8 @@ router.post('/facturas/:folio/estado', ...conSesion, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const f = await porFolio(req.params.folio, client);
-    if (!f) {
+    const f = await porFolio(req.params.folio, client, true);
+    if (!f || !puedeVer(f, req.user)) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Factura no encontrada.' });
     }

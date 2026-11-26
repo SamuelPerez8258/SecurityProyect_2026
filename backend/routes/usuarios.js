@@ -118,6 +118,10 @@ router.put('/usuarios/:id', ...soloAdmin, async (req, res) => {
     if (c.password) {
       await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [await argon2.hash(c.password), id]);
     }
+    // Contrasena nueva o cuenta suspendida: se cierran todas sus sesiones abiertas
+    if (c.password || b.estado === 'suspendido') {
+      await pool.query('UPDATE users SET tokens_validos_desde = NOW() WHERE id = $1', [id]);
+    }
     res.json(aUsuario(rows[0]));
   } catch (e) {
     if (e.code === '23505') return res.status(400).json({ message: 'El correo o el usuario ya estan registrados.' });
