@@ -2,12 +2,15 @@ const router = require('express').Router();
 const argon2 = require('argon2');
 const pool = require('../db');
 const jwt = require('jsonwebtoken');
-const { requireAuth } = require('../middleware/auth');
-const { rateLimitLogin, MAX_INTENTOS } = require('../middleware/rateLimit');
+const { requireRole, leerToken } = require('../middleware/auth');
+const v = require('../lib/validar');
+const { rateLimitLogin, falloLogin, loginCorrecto, MAX_INTENTOS } = require('../middleware/rateLimit');
 
 const BLOQUEO_MIN = 15;
 const GENERICO = { message: 'Usuario o contrasena incorrectos' };
 const ROLES_REGISTRO = ['comprador', 'vendedor'];
+// Nombres que podrian usarse para hacerse pasar por la tienda o el staff
+const RESERVADOS = /^(admin|administrador|administrator|root|soporte|support|staff|moderador|pokevault|sistema|system)/i;
 
 let DUMMY_HASH;
 argon2.hash('dummy-password').then(hash => {
@@ -55,24 +58,14 @@ router.post('/register', rateLimitRegister, async (req, res) => {
     const rol = req.body?.rol ?? 'comprador';
 
 
-    if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string' ||
-        email.trim() === '' || username.trim() === '' || password === ''
-    ) {
-        return res.status(400).json({ error: "Todos los campos son obligatorios y deben ser texto valido." });
-    }
-
-    if (email.length > 250 || !email.includes('@')) {
-        return res.status(400).json({ error: "El correo electronico no es valido o excede el limite." });
-    }
-
-    const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
-    if (!usernameRegex.test(username)) {
-        return res.status(400).json({ error: "El nombre de usuario debe tener entre 3 y 30 caracteres y solo puede contener letras, numeros y guiones bajos." });
-    }
-
-
-    if (password.length < 8 || password.length > 128) {
-        return res.status(400).json({ error: "La contrasena debe tener entre 8 y 128 caracteres." });
+    let emailNormalizado;
+    try {
+        emailNormalizado = v.email(email);
+        v.usuario(username);
+        if (RESERVADOS.test(username)) throw new v.ErrorValidacion('Ese nombre de usuario esta reservado.');
+        v.password(password);
+    } catch (e) {
+        return res.status(400).json({ error: e.message });
     }
 
     // En el registro publico nadie puede pedir ser administrador
@@ -81,7 +74,6 @@ router.post('/register', rateLimitRegister, async (req, res) => {
     }
 
     try {
-        const emailNormalizado = email.trim().toLowerCase();
         const passwordHash = await argon2.hash(password);
 
         const query = `
@@ -149,6 +141,7 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
                 )
             }
 
+            falloLogin(req.ip);
             return res.status(401).json(GENERICO)
 
         }
@@ -158,7 +151,8 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
             [user.id]
         )
 
-        const token = jwt.sign({ sub: user.id, rol: user.rol }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        loginCorrecto(req.ip);
+        const token = jwt.sign({ sub: user.id, rol: user.rol, ims: Date.now() }, process.env.JWT_SECRET, { expiresIn: '1h' });
         res.cookie('token', token, {
             httpOnly: true,
             sameSite: 'strict',
@@ -177,7 +171,9 @@ router.post('/api/login', rateLimitLogin, async (req, res) => {
 })
 
 
-router.get('/api/me', requireAuth, async (req, res) => {
+router.get('/api/me', (req, res, next) => {
+    try { req.user = leerToken(req); next(); } catch { res.status(401).json({ message: 'No autorizado' }); }
+}, requireRole(), async (req, res) => {
     try {
         const { rows } = await pool.query(
             `SELECT id, username, email, is_active, rol, phone, address, created_at
@@ -197,8 +193,15 @@ router.get('/api/me', requireAuth, async (req, res) => {
     }
 });
 
-router.post('/api/logout', (req, res) => {
-    res.clearCookie('token');
+// Cerrar sesion invalida el token en el servidor (no solo borra la cookie)
+router.post('/api/logout', async (req, res) => {
+    try {
+        const t = leerToken(req);
+        await pool.query('UPDATE users SET tokens_validos_desde = NOW() WHERE id = $1', [t.sub]);
+    } catch {
+        // sin token valido no hay nada que invalidar
+    }
+    res.clearCookie('token', { httpOnly: true, sameSite: 'strict' });
     res.json({ message: 'Sesion cerrada' });
 });
 

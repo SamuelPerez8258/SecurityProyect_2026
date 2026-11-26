@@ -39,7 +39,6 @@ if (blindarVista()) {
       <h2 class="font-title">Zona restringida</h2>
       <p>Este panel solo se abre con una cuenta de administrador. Estás dentro como <b>${ses ? ses.usuario.rol : 'invitado'}</b>.</p>
     </div>
-    <p class="aviso">Para la entrega puedes entrar con la cuenta sembrada <b>admin@pokevault.com</b> y cualquier contraseña de 6 caracteres.</p>
     <div class="fila-acciones">
       <a class="boton primario" href="${RUTA.login}">Cambiar de cuenta</a>
       <a class="boton fantasma" href="${RUTA.inicio}">Volver a la tienda</a>
@@ -366,7 +365,7 @@ ${pendientes > 0
     <div class="campo"><label for="ac-rol">Rol</label><select id="ac-rol">${escoge(ROLES, altaUsuario.rol)}</select></div>
     <div class="campo"><label for="ac-tel">Teléfono</label><input id="ac-tel" placeholder="7890 1234"></div>
     <div class="campo"><label for="ac-dir">Dirección</label><input id="ac-dir" placeholder="Col. Escalón, San Salvador"></div>
-    <div class="campo"><label for="ac-pw">Contraseña temporal</label><input id="ac-pw" type="password" placeholder="mínimo 6 caracteres"></div>
+    <div class="campo"><label for="ac-pw">Contraseña temporal</label><input id="ac-pw" type="password" placeholder="mínimo 8 caracteres"></div>
   </div>
   ${errorAlta ? `<p class="aviso malo">${errorAlta}</p>` : ''}
   <div class="fila-acciones">
@@ -408,7 +407,7 @@ ${pendientes > 0
     const correo = altaUsuario.email.trim().toLowerCase();
     if (altaUsuario.nombre.trim().length < 3) { errorAlta = 'Escribe el nombre del usuario.'; pintarAltaUsuario(); return; }
     if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(correo)) { errorAlta = 'El correo no tiene un formato válido.'; pintarAltaUsuario(); return; }
-    if (altaUsuario.password.length < 6) { errorAlta = 'La contraseña temporal debe tener al menos 6 caracteres.'; pintarAltaUsuario(); return; }
+    if (altaUsuario.password.length < 8) { errorAlta = 'La contraseña temporal debe tener al menos 8 caracteres.'; pintarAltaUsuario(); return; }
 
     ocupado = 'alta';
     pintarAltaUsuario();
