@@ -16,7 +16,7 @@ const K_VERSION = 'pokevault:version-semilla';
  * datos viven en localStorage. Subir este número descarta el catálogo, los
  * usuarios y las facturas guardados en el modo mock y vuelve a sembrar.
  */
-const VERSION_SEMILLA = 3;
+const VERSION_SEMILLA = 4;
 const retardo = (ms = 120) => new Promise(r => setTimeout(r, ms));
 function reSembrar() {
     localStorage.removeItem(K_PRODUCTOS);
