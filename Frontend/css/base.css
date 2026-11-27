@@ -1,0 +1,30 @@
+ 
+:root {
+  --u: min(calc(100vw / 1600), calc(100vh / 900));
+  --tinta: #0B0B0F;
+  --papel: #FFFFFF;
+  --niebla: #F5F5F7;
+  --rojo: #D92B05;
+  --sol: #FFD60A;
+  --mid: #5E5E66;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --hdrH: calc(76 * var(--u));
+  --pad: calc(46 * var(--u) + var(--seg-h));
+  --gl: 0;
+  --glc: 255, 214, 10;
+  /* Con viewport-fit=cover la página llega al borde físico del iPhone: la muesca y
+     la barra de gestos se esquivan SUMANDO aire, nunca sustituyéndolo. En pantallas
+     sin áreas seguras estos tres valores valen 0 y el diseño no se entera. */
+  --seg-a: env(safe-area-inset-top, 0px);
+  --seg-h: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
+  --seg-b: env(safe-area-inset-bottom, 0px);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+ 
+[hidden] { display: none !important; }
+
+html { scrollbar-gutter: stable; }
+
+.font-title { font-family: 'Nunito', sans-serif; font-weight: 900; }

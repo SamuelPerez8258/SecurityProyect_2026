@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+# Despliegue de PokeVault en Linux Server
+# Probado para Ubuntu/Debian (apt) y CentOS Stream/Rocky/Alma (dnf)
+# Uso: sudo bash desplegar.sh
+# Para borrar la BD y cargarla de nuevo: sudo RESET_DB=1 bash desplegar.sh
+set -euo pipefail
+
+REPO_URL="https://github.com/SamuelPerez8258/SecurityProyect_2026.git"
+RAMA="develop"
+APP_DIR="/opt/pokevault"
+BACKEND_DIR="backend"
+FRONTEND_DIR="Frontend"
+ENTRY="index.js"
+APP_USER="pokevault"
+
+DB_NAME="pokevault"
+DB_USER="pokevault"
+DB_PASSWORD="PokeVault2026"
+PUERTO_BACKEND=3000
+
+RESET_DB="${RESET_DB:-0}"
+
+if [[ $EUID -ne 0 ]]; then
+  echo "Corre el script con sudo"
+  exit 1
+fi
+
+IP_VM="$(hostname -I | awk '{print $1}')"
+echo "[*] IP de la VM: $IP_VM"
+
+if command -v apt-get >/dev/null 2>&1; then
+  DISTRO="debian"
+elif command -v dnf >/dev/null 2>&1; then
+  DISTRO="rhel"
+else
+  echo "Distro no soportada: se necesita apt-get o dnf"
+  exit 1
+fi
+echo "[*] Familia de distro: $DISTRO"
+
+node_ok() {
+  command -v node >/dev/null 2>&1 && [[ "$(node -v | cut -d. -f1 | tr -d v)" -ge 22 ]]
+}
+
+echo "[1/9] Paquetes del sistema"
+if [[ "$DISTRO" == "debian" ]]; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y git curl ca-certificates gnupg openssl nginx postgresql postgresql-contrib build-essential python3
+else
+  dnf install -y git curl ca-certificates openssl nginx postgresql-server postgresql-contrib policycoreutils-python-utils gcc-c++ make python3
+fi
+
+echo "[2/9] Node.js"
+if ! node_ok; then
+  if [[ "$DISTRO" == "debian" ]]; then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y nodejs
+  else
+    dnf install -y nodejs npm || true
+    if ! node_ok; then
+      curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+      dnf install -y nodejs
+    fi
+  fi
+fi
+NODE_BIN="$(command -v node)"
+echo "    node $(node -v) / npm $(npm -v)"
+
+echo "[3/9] Codigo del repo (rama $RAMA)"
+git config --global --add safe.directory "$APP_DIR"
+if [[ -d "$APP_DIR/.git" ]]; then
+  git -C "$APP_DIR" fetch --all --prune
+  git -C "$APP_DIR" checkout "$RAMA"
+  git -C "$APP_DIR" reset --hard "origin/$RAMA"
+else
+  echo "    Si el repo es privado: usuario de GitHub y como password un token (PAT)"
+  git clone --branch "$RAMA" "$REPO_URL" "$APP_DIR"
+  git -C "$APP_DIR" fetch --all --prune
+fi
+
+echo "[4/9] Usuario del sistema"
+id "$APP_USER" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "$APP_USER"
+
+echo "[5/9] PostgreSQL"
+if [[ "$DISTRO" == "rhel" ]] && [[ ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
+  postgresql-setup --initdb
+fi
+systemctl enable --now postgresql
+
+# En CentOS/Rocky las conexiones por 127.0.0.1 vienen con "ident": se cambian a password
+HBA_FILE="$(sudo -u postgres psql -tAc 'SHOW hba_file' | tr -d '[:space:]')"
+if grep -Eq '^host[[:space:]].*[[:space:]](ident|peer)[[:space:]]*$' "$HBA_FILE"; then
+  sed -E -i 's/^(host[[:space:]].*[[:space:]])(ident|peer)[[:space:]]*$/\1scram-sha-256/' "$HBA_FILE"
+  systemctl reload postgresql
+  echo "    pg_hba.conf: conexiones host con password (scram-sha-256)"
+fi
+
+if [[ "$RESET_DB" == "1" ]]; then
+  echo "    RESET_DB=1: borrando base $DB_NAME"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS $DB_NAME;"
+  rm -f "$APP_DIR/.db_inicializada"
+fi
+
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER') THEN
+    CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
+  ELSE
+    ALTER ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';
+  END IF;
+END
+\$\$;
+SQL
+
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1; then
+  sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
+fi
+
+# Busca un .sql en la rama actual; si no esta, lo saca de otras ramas del remoto
+obtener_sql() {
+  local nombre="$1"
+  shift
+  local encontrado
+  encontrado="$(find "$APP_DIR" -name node_modules -prune -o -type f -name "$nombre" -print 2>/dev/null | head -n1 || true)"
+  if [[ -n "$encontrado" ]]; then
+    echo "$encontrado"
+    return 0
+  fi
+  local rama ruta
+  for rama in "$@"; do
+    ruta="$(git -C "$APP_DIR" ls-tree -r --name-only "origin/$rama" 2>/dev/null | grep -E "(^|/)$nombre\$" | head -n1 || true)"
+    if [[ -n "$ruta" ]]; then
+      git -C "$APP_DIR" show "origin/$rama:$ruta" > "/tmp/$nombre"
+      echo "    $nombre tomado de origin/$rama:$ruta" >&2
+      echo "/tmp/$nombre"
+      return 0
+    fi
+  done
+  return 0
+}
+
+if [[ ! -f "$APP_DIR/.db_inicializada" ]]; then
+  for archivo in schema.sql alter.sql functions.sql inserts.sql productos.sql semilla_productos.sql roles.sql usuarios_prueba.sql; do
+    ruta_sql="$(obtener_sql "$archivo" feature/database feature/Productos)"
+    if [[ -z "$ruta_sql" ]]; then
+      echo "    AVISO: no se encontro $archivo en ninguna rama, se omite"
+      continue
+    fi
+    echo "    Cargando $archivo"
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" < "$ruta_sql"
+  done
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" <<SQL
+GRANT ALL ON SCHEMA public TO $DB_USER;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO $DB_USER;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
+SQL
+  touch "$APP_DIR/.db_inicializada"
+else
+  echo "    BD ya inicializada (usa RESET_DB=1 para recargarla)"
+fi
+
+echo "[6/9] Backend (.env y dependencias)"
+cd "$APP_DIR/$BACKEND_DIR"
+JWT_SECRET="$(grep -s '^JWT_SECRET=' .env | cut -d= -f2- || true)"
+if [[ ${#JWT_SECRET} -lt 32 ]]; then
+  JWT_SECRET="$(openssl rand -hex 32)"
+fi
+cat > .env <<ENV
+PORT=$PUERTO_BACKEND
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASSWORD
+DB_NAME=$DB_NAME
+JWT_SECRET=$JWT_SECRET
+FRONTEND_ORIGIN=http://$IP_VM
+NODE_ENV=development
+ENV
+chmod 600 .env
+if [[ -f package-lock.json ]]; then
+  npm ci --omit=dev
+else
+  npm install --omit=dev
+fi
+
+echo "[7/9] Frontend"
+# No se corre npm run compilar: los .js del repo tienen cambios que no estan en src/lib/*.ts
+CONFIG_JS="$APP_DIR/$FRONTEND_DIR/js/config.js"
+if [[ -f "$CONFIG_JS" ]]; then
+  sed -E -i "s#URL_BASE:[[:space:]]*[\"'][^\"']*[\"']#URL_BASE: window.location.origin#" "$CONFIG_JS"
+  sed -E -i "s#modo:[[:space:]]*[\"']mock[\"']#modo: 'http'#" "$CONFIG_JS"
+  echo "    config.js:"
+  grep -nE "URL_BASE|modo" "$CONFIG_JS" | sed 's/^/      /'
+else
+  echo "    AVISO: no existe $CONFIG_JS"
+fi
+
+# Carpeta de fotos que sube el backend (POST /archivos) y sirve Nginx
+mkdir -p "$APP_DIR/$FRONTEND_DIR/uploads"
+chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+chmod 600 "$APP_DIR/$BACKEND_DIR/.env"
+
+echo "[8/9] Servicio systemd del backend"
+cat > /etc/systemd/system/pokevault.service <<UNIT
+[Unit]
+Description=PokeVault backend (Express)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=$APP_USER
+WorkingDirectory=$APP_DIR/$BACKEND_DIR
+EnvironmentFile=$APP_DIR/$BACKEND_DIR/.env
+ExecStart=$NODE_BIN $ENTRY
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable pokevault
+systemctl restart pokevault
+
+echo "[9/9] Nginx (frontend estatico + proxy al backend)"
+if [[ "$DISTRO" == "debian" ]]; then
+  NGINX_CONF="/etc/nginx/sites-available/pokevault"
+else
+  NGINX_CONF="/etc/nginx/conf.d/pokevault.conf"
+  # El server por defecto de nginx.conf no debe competir con el nuestro
+  sed -i 's/ default_server;/;/' /etc/nginx/nginx.conf
+fi
+cat > "$NGINX_CONF" <<NGINX
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    root $APP_DIR/$FRONTEND_DIR;
+    index index.html;
+    client_max_body_size 10m;
+
+    location / {
+        try_files \$uri \$uri/ @backend;
+    }
+
+    location @backend {
+        proxy_pass http://127.0.0.1:$PUERTO_BACKEND;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+NGINX
+if [[ "$DISTRO" == "debian" ]]; then
+  ln -sf /etc/nginx/sites-available/pokevault /etc/nginx/sites-enabled/pokevault
+  rm -f /etc/nginx/sites-enabled/default
+fi
+
+# SELinux (CentOS/Rocky): nginx necesita leer el frontend y conectarse al backend
+if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce)" != "Disabled" ]]; then
+  setsebool -P httpd_can_network_connect 1
+  chcon -R -t httpd_sys_content_t "$APP_DIR/$FRONTEND_DIR"
+  echo "    SELinux: httpd_can_network_connect=1 y contexto httpd_sys_content_t en el frontend"
+fi
+
+# Firewall: abrir el puerto 80 si hay firewalld o ufw activo
+if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+  firewall-cmd --permanent --add-service=http
+  firewall-cmd --reload
+  echo "    firewalld: http abierto"
+fi
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+  ufw allow 80/tcp
+  echo "    ufw: 80/tcp abierto"
+fi
+
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+
+echo
+echo "[*] Verificacion"
+sleep 3
+echo "    backend: $(systemctl is-active pokevault)"
+echo "    nginx:   $(systemctl is-active nginx)"
+echo "    GET /           -> $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/)"
+echo "    GET /productos  -> $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/productos)"
+echo "    GET /api/me     -> $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/api/me) (401 es normal sin login)"
+echo
+echo "Listo: abre http://$IP_VM desde el navegador del host"
+echo "Usuarios de prueba:"
+echo "    admin@pokevault.local     / Admin12345    (administrador)"
+echo "    vendedor@pokevault.local  / Vendedor123   (vendedor)"
+echo "    comprador@pokevault.local / Comprador123  (comprador)"
+echo "Logs del backend: sudo journalctl -u pokevault -f"
