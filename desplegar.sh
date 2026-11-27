@@ -4,6 +4,10 @@
 # Uso: sudo bash desplegar.sh
 # Para borrar la BD y cargarla de nuevo: sudo RESET_DB=1 bash desplegar.sh
 # Para no tocar el firewall o SSH: sudo FIREWALL=0 HARDEN_SSH=0 bash desplegar.sh
+# Sin internet (desde USB, en la carpeta del repo): sudo OFFLINE=1 bash desplegar.sh
+#   - no clona de GitHub: usa el codigo de esta misma carpeta
+#   - si trae backend/node_modules, no corre npm
+#   - usa el Node del sistema si NodeSource no esta disponible
 set -euo pipefail
 
 REPO_URL="https://github.com/SamuelPerez8258/SecurityProyect_2026.git"
@@ -21,6 +25,8 @@ PUERTO_BACKEND=3000
 RESET_DB="${RESET_DB:-0}"
 FIREWALL="${FIREWALL:-1}"
 HARDEN_SSH="${HARDEN_SSH:-1}"
+OFFLINE="${OFFLINE:-0}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ $EUID -ne 0 ]]; then
   echo "Corre el script con sudo"
@@ -41,7 +47,7 @@ fi
 echo "[*] Familia de distro: $DISTRO"
 
 node_ok() {
-  command -v node >/dev/null 2>&1 && [[ "$(node -v | cut -d. -f1 | tr -d v)" -ge 22 ]]
+  command -v node >/dev/null 2>&1 && [[ "$(node -v | cut -d. -f1 | tr -d v)" -ge 18 ]]
 }
 
 echo "[1/9] Paquetes del sistema"
@@ -56,22 +62,35 @@ fi
 echo "[2/9] Node.js"
 if ! node_ok; then
   if [[ "$DISTRO" == "debian" ]]; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    apt-get install -y nodejs
+    # Online: Node 22 de NodeSource. Offline o si NodeSource falla: Node del repo de Ubuntu.
+    if [[ "$OFFLINE" != "1" ]]; then
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs || true
+    fi
+    node_ok || apt-get install -y nodejs npm || true
   else
     dnf install -y nodejs npm || true
-    if ! node_ok; then
-      curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-      dnf install -y nodejs
+    if ! node_ok && [[ "$OFFLINE" != "1" ]]; then
+      curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && dnf install -y nodejs || true
     fi
   fi
+fi
+if ! node_ok; then
+  echo "    ERROR: no hay Node.js 18+ y no se pudo instalar. Con internet reintenta sin OFFLINE;"
+  echo "    sin internet, la VM necesita Node preinstalado o usar la VM de respaldo (.ova)."
+  exit 1
 fi
 NODE_BIN="$(command -v node)"
 echo "    node $(node -v) / npm $(npm -v)"
 
 echo "[3/9] Codigo del repo (rama $RAMA)"
-git config --global --add safe.directory "$APP_DIR"
-if [[ -d "$APP_DIR/.git" ]]; then
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+if [[ "$OFFLINE" == "1" ]]; then
+  echo "    OFFLINE: usando el codigo de $SCRIPT_DIR (sin clonar)"
+  if [[ "$SCRIPT_DIR" != "$APP_DIR" ]]; then
+    mkdir -p "$APP_DIR"
+    cp -a "$SCRIPT_DIR/." "$APP_DIR/"
+  fi
+elif [[ -d "$APP_DIR/.git" ]]; then
   git -C "$APP_DIR" fetch --all --prune
   git -C "$APP_DIR" checkout "$RAMA"
   git -C "$APP_DIR" reset --hard "origin/$RAMA"
@@ -212,10 +231,17 @@ FRONTEND_ORIGIN=http://$IP_VM
 NODE_ENV=development
 ENV
 chmod 600 .env
-if [[ -f package-lock.json ]]; then
+if [[ -d node_modules ]] && [[ "$OFFLINE" == "1" ]]; then
+  echo "    OFFLINE: usando backend/node_modules del paquete (sin npm)"
+elif [[ -f package-lock.json ]]; then
   npm ci --omit=dev
 else
   npm install --omit=dev
+fi
+if [[ ! -d node_modules ]]; then
+  echo "    ERROR: faltan las dependencias del backend (node_modules) y no hay npm/internet."
+  echo "    Incluye backend/node_modules en el USB o despliega con internet."
+  exit 1
 fi
 
 echo "[7/9] Frontend"
@@ -461,9 +487,9 @@ echo "    GET /api/me     -> $(curl -s -o /dev/null -w '%{http_code}' http://127
 echo
 echo "Listo: abre http://$IP_VM desde el navegador del host"
 echo "Usuarios de prueba:"
-echo "    admin@pokevault.local     / Admin12345    (administrador)"
-echo "    vendedor@pokevault.local  / Vendedor123   (vendedor)"
-echo "    comprador@pokevault.local / Comprador123  (comprador)"
+echo '    admin@pokevault.local     / $PKadmin67$    (administrador)'
+echo '    vendedor@pokevault.local  / $PKvendedor67$   (vendedor)'
+echo '    comprador@pokevault.local / $PKcomprador67$  (comprador)'
 echo "Puertos escuchando:"
 ss -tlnp 2>/dev/null | awk 'NR>1{print "    "$4}' | sort -u
 echo "Logs del backend: sudo journalctl -u pokevault -f"
