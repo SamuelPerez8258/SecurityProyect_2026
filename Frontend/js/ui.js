@@ -1,7 +1,6 @@
-
 import { limpiarSesion, marcarEntradaTienda, sesionAlmacenada, suscribirSesion, yaEntramosTienda } from './sesion.js';
 import { http, modo } from './http.js';
-import { carrito, suscribirCarrito } from './carrito.js';
+import { carrito, suscribirCarrito, vaciarCarrito } from './carrito.js';
 import { EMPRESA, telHref } from './empresa.js';
 
 const RUTA = {
@@ -173,6 +172,7 @@ function montarInteracciones() {
     if (salir) salir.addEventListener('click', async () => {
     if (modo() === 'http') await http.cerrarSesion().catch(() => {});
     limpiarSesion();
+    vaciarCarrito();
     marcarEntradaTienda();
     location.reload();
   });
@@ -199,4 +199,3 @@ export function blindarVista() {
 }
 
 export { RUTA };
-
