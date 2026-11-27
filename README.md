@@ -10,15 +10,13 @@ documentadas** (sección 5) sobre una base endurecida.
 
 ## Equipo
 
-<!-- Completar apellidos y carné de cada integrante antes de la entrega -->
-
 | Integrante | Usuario GitHub | Carné |
 |---|---|---|
-| Anthony | `Anthony1347P` | 00202124 |
-| Diego Pérez | `DiegoIPH` | _(completar)_ |
-| Samuel Pérez | `SamuelPerez8258` | _(completar)_ |
-| Juan Carlos | `Juan-CRivera` | _(completar)_ |
-| David Ventura | `David-Ventura24` | _(completar)_ |
+| Jaime Antonio Pérez Shupan | `Anthony1347P` | 00202124 |
+| David Alessandro Ventura Montoya | `David-Ventura24` | 00089724 |
+| Juan Carlos Rivera Meléndez | `Juan-CRivera` | 00029324 |
+| Samuel Alejandro Pérez Hernández | `SamuelPerez8258` | 00052424 |
+| Diego Pérez Herrera | `DiegoIPH` | 00543924 |
 
 ## 1. Descripción y roles
 
