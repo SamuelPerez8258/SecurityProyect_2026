@@ -5,6 +5,21 @@ para el curso **Seguridad en Entorno de Desarrollo** (UCA). La aplicación se de
 una VM con Linux Server e incluye **dos vulnerabilidades introducidas a propósito y
 documentadas** (sección 5) sobre una base endurecida.
 
+> Universidad Centroamericana "José Simeón Cañas" — Facultad de Ingeniería y Arquitectura
+> Curso: Seguridad en Entorno de Desarrollo, ciclo 02/2026.
+
+## Equipo
+
+<!-- Completar apellidos y carné de cada integrante antes de la entrega -->
+
+| Integrante | Usuario GitHub | Carné |
+|---|---|---|
+| Anthony | `Anthony1347P` | 00202124 |
+| Diego Pérez | `DiegoIPH` | _(completar)_ |
+| Samuel Pérez | `SamuelPerez8258` | _(completar)_ |
+| Juan Carlos | `Juan-CRivera` | _(completar)_ |
+| David Ventura | `David-Ventura24` | _(completar)_ |
+
 ## 1. Descripción y roles
 
 La aplicación permite publicar, revisar y comprar cartas de colección. El acceso a cada
@@ -117,6 +132,9 @@ http://IP_DE_LA_VM
 
 Se introdujeron dos, una de código y una de servidor, ambas explotables, reproducibles y
 marcadas en el código con el comentario `VULN`. El resto de la aplicación está endurecido.
+
+> La explicación detallada, con requerimientos, infraestructura y los pasos de explotación,
+> está en **[PLAYBOOK.md](PLAYBOOK.md)**.
 
 ### 5.1 IDOR — Referencia directa a objeto insegura (código)
 
