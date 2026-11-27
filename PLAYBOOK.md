@@ -87,9 +87,9 @@ Usuarios de prueba por rol (para que el instructor verifique los roles):
 
 | Rol | Correo | Contraseña |
 |---|---|---|
-| Administrador | `admin@pokevault.local` | `Admin12345` |
-| Vendedor | `vendedor@pokevault.local` | `Vendedor123` |
-| Comprador | `comprador@pokevault.local` | `Comprador123` |
+| Administrador | `admin@pokevault.local` | `PvAdm-NPByRu#4HYZRY` |
+| Vendedor | `vendedor@pokevault.local` | `PvVen-H7k7EY#JnQ8XJ` |
+| Comprador | `comprador@pokevault.local` | `PvCom-iKZh9W#vexAJv` |
 
 ---
 
