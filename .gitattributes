@@ -1,0 +1,3 @@
+# Los scripts de bash siempre con fin de linea LF, tambien en Windows.
+# Con CRLF bash falla al correr desplegar.sh en la VM (copia por USB / modo OFFLINE).
+*.sh text eol=lf
