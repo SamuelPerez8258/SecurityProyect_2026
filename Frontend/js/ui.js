@@ -1,7 +1,6 @@
-
 import { limpiarSesion, marcarEntradaTienda, sesionAlmacenada, suscribirSesion, yaEntramosTienda } from './sesion.js';
 import { http, modo } from './http.js';
-import { carrito, suscribirCarrito } from './carrito.js';
+import { carrito, suscribirCarrito, vaciarCarrito } from './carrito.js';
 import { EMPRESA, telHref } from './empresa.js';
 
 const RUTA = {
@@ -109,8 +108,20 @@ export function pie() {
   <div class="pie-legal">
     <span>© 2026 PokéVault. Pokémon y Pikachu son marcas de Nintendo, Creatures Inc. y GAME FREAK inc.</span>
     <span>${EMPRESA.horario}</span>
+    <button type="button" class="pie-version" id="btn-changelog">Última actualización: v1.0</button>
   </div>
 </footer>
+<div class="cl-scrim" id="cl-scrim" hidden>
+  <div class="cl-modal" role="dialog" aria-modal="true" aria-label="Notas de versión">
+    <button type="button" class="cl-x" id="cl-x" aria-label="Cerrar">&times;</button>
+    <h2 class="cl-titulo font-title">Notas de versión</h2>
+    <ul class="cl-lista">
+      <li><strong>v1.0.0</strong> · 27/11/2026<br>Lanzamiento de PokéVault.</li>
+      <li><strong>v0.9.0</strong><br>Facturas: cada compra genera un folio correlativo (PV-2026-0001, 0002...).</li>
+      <li><strong>v0.8.0</strong><br>Comunidad: catálogo de cartas de la comunidad y mejoras de rendimiento.</li>
+    </ul>
+  </div>
+</div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>`;
 }
 
@@ -147,6 +158,7 @@ export function montarShell({ inicio = RUTA.inicio } = {}) {
   document.body.insertAdjacentHTML('beforeend', pie());
   document.addEventListener('keydown', e => { if (e.key === 'Escape') abrirDrawer(false); });
   montarInteracciones();
+  montarChangelog();
 
   /* sesión o carrito cambiaron: se tiran las tres piezas del shell y se vuelven a
      generar; dejarlas sueltas dejaría dos #drawer en el DOM. */
@@ -157,6 +169,20 @@ export function montarShell({ inicio = RUTA.inicio } = {}) {
   };
   suscribirSesion(repintar);
   suscribirCarrito(repintar);
+}
+
+/* El changelog del pie vive una sola vez (el pie no se repinta), asi que se
+   enlaza aqui y no en montarInteracciones. */
+function montarChangelog() {
+  const scrim = document.getElementById('cl-scrim');
+  const abrir = document.getElementById('btn-changelog');
+  const cerrar = document.getElementById('cl-x');
+  if (!scrim || !abrir) return;
+  const ver = on => { scrim.hidden = !on; };
+  abrir.addEventListener('click', () => ver(true));
+  cerrar.addEventListener('click', () => ver(false));
+  scrim.addEventListener('click', e => { if (e.target === scrim) ver(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') ver(false); });
 }
 
 /** Los listeners del shell se vuelven a enlazar cada vez que el header se repinta. */
@@ -173,6 +199,7 @@ function montarInteracciones() {
     if (salir) salir.addEventListener('click', async () => {
     if (modo() === 'http') await http.cerrarSesion().catch(() => {});
     limpiarSesion();
+    vaciarCarrito();
     marcarEntradaTienda();
     location.reload();
   });
@@ -199,4 +226,3 @@ export function blindarVista() {
 }
 
 export { RUTA };
-

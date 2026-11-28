@@ -38,7 +38,7 @@ BEGIN
       'fecha', to_char(NOW(), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
       'vence', to_char(NOW() + interval '72 hours', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
       'estado', 'pagado',
-      'bandera', 'Felicidades, has encontrado la vulnerabilidad, suerte con la siguiente... Ant',
+      'bandera', 'Felicidades, encontraste la primera. Para la segunda, mira como trata la galeria los archivos SVG: no siempre una imagen es solo una imagen. Lo demas lo armas vos. — Anthony',
       'pago', jsonb_build_object('metodo', 'Transferencia bancaria', 'tipo', 'Transferencia'),
       'comprador', jsonb_build_object(
         'id', admin_id::text,
